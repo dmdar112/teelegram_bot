@@ -13,7 +13,7 @@ import cloudinary.uploader
 
 # متغيرات البيئة
 TOKEN = os.environ.get("TOKEN")
-OWNER_ID = 5881024874  # عدّل رقمك هنا
+OWNER_ID = 7054294622  # عدّل رقمك هنا
 
 # هنا بعد تعريف المتغيرات والثوابت اكتب:
 
