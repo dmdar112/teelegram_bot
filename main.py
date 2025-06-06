@@ -230,8 +230,7 @@ def send_required_links(chat_id, category):
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
-    bot.send_message(chat_id, text, reply_markup=markup)
-
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
     pending_check[chat_id] = {"category": category, "step": step}
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
