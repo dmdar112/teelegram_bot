@@ -1,6 +1,5 @@
 import os
 import time
-import json
 from flask import Flask
 from threading import Thread
 
@@ -52,6 +51,7 @@ subscribe_links_v2 = [
 pending_check = {}
 owner_upload_mode = {}
 waiting_for_broadcast = {}
+waiting_for_delete = {}
 
 def load_approved_users(collection):
     return set(doc["user_id"] for doc in collection.find())
@@ -82,6 +82,7 @@ def owner_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
+    markup.row("حذف فيديو واحد")
     markup.row("رسالة جماعية مع صورة")
     return markup
 
@@ -241,66 +242,125 @@ def handle_video(message):
             if os.path.exists(tmp_filename):
                 os.remove(tmp_filename)
 
+        # حفظ بيانات الفيديو في قاعدة البيانات حسب الفئة
+        video_data = {
+            "file_id": message.video.file_id,
+            "public_id": upload_res.get("public_id"),
+            "url": upload_res.get("secure_url"),
+            "user_id": user_id,
+            "timestamp": int(time.time())
+        }
+
+        if category == "v1":
+            approved_v1_col.insert_one(video_data)
+        else:
+            approved_v2_col.insert_one(video_data)
+
+    elif user_id == OWNER_ID and message.text == "حذف فيديو واحد":
+        waiting_for_delete[user_id] = True
+        bot.send_message(user_id, "أرسل لي الـ public_id الخاص بالفيديو الذي تريد حذفه:")
+
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
+def delete_single_video(message):
+    public_id = message.text.strip()
+    user_id = message.from_user.id
+
+    # البحث عن الفيديو في المجموعتين
+    video_doc = approved_v1_col.find_one({"public_id": public_id})
+    collection = approved_v1_col
+    if not video_doc:
+        video_doc = approved_v2_col.find_one({"public_id": public_id})
+        collection = approved_v2_col
+
+    if not video_doc:
+        bot.send_message(user_id, "❌ لم أجد فيديو بهذا public_id.")
     else:
-        bot.reply_to(message, "❌ لا يمكنك إرسال فيديوهات.")
+        try:
+            # حذف من Cloudinary
+            result = cloudinary.uploader.destroy(public_id, resource_type="video")
+            if result.get("result") == "ok":
+                # حذف من MongoDB
+                collection.delete_one({"public_id": public_id})
+                bot.send_message(user_id, "✅ تم حذف الفيديو بنجاح.")
+            else:
+                bot.send_message(user_id, f"❌ لم أستطع حذف الفيديو من السحابة: {result}")
+        except Exception as e:
+            bot.send_message(user_id, f"❌ حدث خطأ أثناء الحذف: {str(e)}")
 
-def send_videos(chat_id, category):
-    # استعلام عن فيديوهات من Cloudinary بالمسار المناسب
-    try:
-        res = cloudinary.Search().expression(f"folder:videos_{category}").max_results(20).execute()
-        resources = res.get("resources", [])
-        if not resources:
-            bot.send_message(chat_id, "لا يوجد فيديوهات حالياً.", reply_markup=main_keyboard())
-            return
+    waiting_for_delete.pop(user_id, None)
 
-        for video in resources:
-            url = video["secure_url"]
-            bot.send_video(chat_id, url)
-    except Exception as e:
-        bot.send_message(chat_id, f"حدث خطأ في جلب الفيديوهات: {str(e)}", reply_markup=main_keyboard())
+def send_videos(user_id, category):
+    collection = approved_v1_col if category == "v1" else approved_v2_col
+    videos = list(collection.find())
+    if not videos:
+        bot.send_message(user_id, "لا توجد فيديوهات متاحة حالياً.")
+        return
 
-@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
-def ask_broadcast_photo(message):
-    bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
-    waiting_for_broadcast["photo"] = True
+    for video in videos:
+        try:
+            bot.send_video(user_id, video["file_id"])
+            time.sleep(0.5)  # لتجنب الحظر المؤقت من تلغرام
+        except Exception as e:
+            print(f"خطأ في إرسال الفيديو: {e}")
 
-@bot.message_handler(content_types=['photo'])
-def receive_broadcast_photo(message):
-    if waiting_for_broadcast.get("photo") and message.from_user.id == OWNER_ID:
-        waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
-        waiting_for_broadcast["photo"] = False
-        waiting_for_broadcast["awaiting_text"] = True
-        bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
+def broadcast_message(text):
+    users = get_all_approved_users()
+    for user_id in users:
+        try:
+            bot.send_message(user_id, text)
+            time.sleep(0.1)
+        except Exception:
+            pass
 
-@bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
-def receive_broadcast_text(message):
-    if waiting_for_broadcast.get("awaiting_text"):
-        photo_id = waiting_for_broadcast.get("photo_file_id")
-        text = message.text
-        users = get_all_approved_users()
-        sent_count = 0
-        for user_id in users:
-            try:
-                bot.send_photo(user_id, photo_id, caption=text)
-                sent_count += 1
-            except Exception:
-                pass
-        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
-        waiting_for_broadcast.clear()
+# بث رسالة مع صورة (يتم من خلال زر في لوحة مالك البوت)
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_broadcast.get(m.from_user.id))
+def handle_broadcast_photo(message):
+    if not message.photo:
+        bot.send_message(message.from_user.id, "يرجى إرسال صورة مع الرسالة.")
+        return
 
-# --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
-app = Flask('')
+    caption = waiting_for_broadcast[message.from_user.id]
+    file_id = message.photo[-1].file_id
 
-@app.route('/')
-def home():
-    return "Bot is running"
+    users = get_all_approved_users()
+    for user_id in users:
+        try:
+            bot.send_photo(user_id, file_id, caption=caption)
+            time.sleep(0.1)
+        except Exception:
+            pass
+
+    bot.send_message(message.from_user.id, "تم إرسال الرسالة مع الصورة إلى الجميع.")
+    waiting_for_broadcast.pop(message.from_user.id, None)
+
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID)
+def handle_owner_text(message):
+    text = message.text
+    if text == "حذف فيديو واحد":
+        waiting_for_delete[message.from_user.id] = True
+        bot.send_message(message.from_user.id, "أرسل لي الـ public_id الخاص بالفيديو الذي تريد حذفه:")
+    elif text == "رسالة جماعية مع صورة":
+        bot.send_message(message.from_user.id, "أرسل لي نص الرسالة التي تريد إرسالها مع الصورة:")
+        waiting_for_broadcast[message.from_user.id] = ""
+    elif waiting_for_broadcast.get(message.from_user.id) == "":
+        waiting_for_broadcast[message.from_user.id] = text
+        bot.send_message(message.from_user.id, "الآن أرسل لي الصورة التي تريد إرسالها مع هذه الرسالة:")
+    else:
+        bot.send_message(message.from_user.id, "استخدم الأزرار في لوحة التحكم.")
 
 def run():
-    app.run(host='0.0.0.0', port=3000)
+    bot.infinity_polling()
+
+app = Flask("")
+
+@app.route("/")
+def home():
+    return "بوت يعمل..."
 
 def keep_alive():
-    t = Thread(target=run)
-    t.start()
+    server = Thread(target=app.run, kwargs={"host":"0.0.0.0","port":8080})
+    server.start()
 
-keep_alive()
-bot.infinity_polling()
+if __name__ == "__main__":
+    keep_alive()
+    run()
