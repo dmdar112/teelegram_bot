@@ -46,8 +46,10 @@ notified_users_col = db["notified_users"]
 bot = telebot.TeleBot(TOKEN)
 
 subscribe_links_v1 = [
-    "https://t.me/R2M199",
-    "https://t.me/SNOKER_VIP",
+    "https://t.me/+2L5KrXuCDUA5ZWIy",
+    "https://t.me/+SPTrcs3tJqhlMDVi",
+    "https://t.me/+W2KuzsUu_zcyODIy",
+    "https://t.me/+CFA6qHiV0zw1NjRk",
 ]
 
 subscribe_links_v2 = [
