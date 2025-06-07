@@ -190,17 +190,32 @@ def handle_delete_choice(message):
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-    
-    # رسالة الترحيب
+    bot_username = "znjopabot"  # ضع اسم البوت هنا بدون @
+    channel_invite_link = "https://t.me/+CFA6qHiV0zw1NjRk"  # رابط قناة اشتراك
+    verify_link = f"https://t.me/{bot_username}?start=check"
+
+    # إذا كتب المستخدم /start check
+    if message.text == "/start check":
+        owner_msg = f"""👤 طلب دخول جديد:
+
+• الاسم: {first_name}
+• الايدي: {user_id}
+
+✅ لقبول المستخدم أرسل: /approve_{user_id}
+❌ لرفضه أرسل: /reject_{user_id}
+"""
+        bot.send_message(OWNER_ID, owner_msg)
+        bot.send_message(user_id, "✅ تم استلام طلبك! الرجاء الانتظار حتى يتم الموافقة عليك من قبل الإدارة.")
+        return
+
+    # متابعة تنفيذ /start العادي
     welcome_message = (
-    f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-    "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
-    "⚠️ المحتوى +18 - للكبار فقط!"
-)
-    
+        f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
+        "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
+        "⚠️ المحتوى +18 - للكبار فقط!"
+    )
     bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
-    
-    # باقي منطق دالة start (مثل التحقق من المالك أو الاشتراك)
+
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
@@ -216,6 +231,15 @@ def start(message):
 """
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
+
+    # إرسال رسالة الاشتراك
+    message_text = (
+        "🚸| عذراً عزيزي.\n"
+        "🔰| عليك الاشتراك عبر الرابط التالي لتتمكن من استخدام البوت:\n\n"
+        f"📢 رابط الاشتراك:\n{channel_invite_link}\n\n"
+        f"✅ بعد الاشتراك [اضغط هنا للتحقق]({verify_link})"
+    )
+    bot.send_message(user_id, message_text, parse_mode='Markdown')
     
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
