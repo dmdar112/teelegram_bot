@@ -190,33 +190,22 @@ def handle_delete_choice(message):
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-    username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد معرف"
 
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
     if not has_notified(user_id):
-        total_users = len(get_all_approved_users())
-        new_user_msg = f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
------------------------
-• الاسم : {first_name}
-• المعرف : {username}
-• الايدي : {user_id}
------------------------
-• عدد الأعضاء الكلي: {total_users}
-"""
-        bot.send_message(OWNER_ID, new_user_msg)
+        # ... الرسالة للمالك (حسب كودك)
         add_notified_user(user_id)
 
-first_name = message.from_user.first_name
-welcome_message = (
-    f"🔞 مرحباً بك {first_name} في البوت!\n"
-    "اختر قسم الفيديوهات من الأزرار بالأسفل 👇\n\n"
-    "⚠️ المحتوى +18 |  للكبار فقط"
-)
-bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
-
+    welcome_message = (
+        f"🔞 مرحباً بك {first_name} في البوت!\n"
+        "اختر قسم الفيديوهات من الأزرار بالأسفل 👇\n\n"
+        "⚠️ المحتوى +18 |  للكبار فقط"
+    )
+    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+    
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
