@@ -260,11 +260,14 @@ def send_required_links(chat_id, category):
     data = pending_check.get(chat_id, {"category": category, "step": 0})
     step = data["step"]
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
+
     if step >= len(links):
         notify_owner_for_approval(chat_id, "مستخدم", category)
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
         pending_check.pop(chat_id, None)
         return
+
+    link = links[step]  # 🔴 هذا السطر مهم لتعريف المتغير "link"
 
     text = f"""🚸| عذراً عزيزي .
 🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه
@@ -274,9 +277,9 @@ def send_required_links(chat_id, category):
 ‼️| اشترك ثم اضغط لتحقق 👾.👇🏻
 """
 
-markup = types.InlineKeyboardMarkup()
-markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
-bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
     pending_check[chat_id] = {"category": category, "step": step}
 
