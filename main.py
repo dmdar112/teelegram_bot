@@ -31,7 +31,7 @@ def enable_maintenance(message):
         users = get_all_approved_users()
         for user_id in users:
             try:
-                bot.send_message(user_id, "✅ شكراً لاشتراك.\n⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات، سيتم قبولك تلقائياً، وإذا لم تشترك سيتم رفضك⚠️")
+                bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
             except:
                 pass
 
