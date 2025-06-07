@@ -15,10 +15,38 @@ import cloudinary.uploader
 TOKEN = os.environ.get("TOKEN")
 OWNER_ID = 7054294622  # عدّل رقمك هنا
 
+maintenance_mode = False
 # هنا بعد تعريف المتغيرات والثوابت اكتب:
 
 waiting_for_delete = {}
 
+@bot.message_handler(commands=['off'])
+def enable_maintenance(message):
+    if message.from_user.id == OWNER_ID:
+        global maintenance_mode
+        maintenance_mode = True
+        bot.reply_to(message, "✅ تم تفعيل وضع الصيانة. البوت الآن في وضع الصيانة.")
+        # إرسال رسالة لكل المستخدمين أن البوت في الصيانة
+        users = get_all_approved_users()
+        for user_id in users:
+            try:
+                bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+            except:
+                pass
+
+@bot.message_handler(commands=['on'])
+def disable_maintenance(message):
+    if message.from_user.id == OWNER_ID:
+        global maintenance_mode
+        maintenance_mode = False
+        bot.reply_to(message, "✅ تم إيقاف وضع الصيانة. البوت عاد للعمل.")
+        # إرسال رسالة لكل المستخدمين أن البوت عاد للعمل
+        users = get_all_approved_users()
+        for user_id in users:
+            try:
+                bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة، البوت عاد للعمل. يمكنك استخدام الفيديوهات والاشتراك.")
+            except:
+                pass
 # ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
 
 CLOUD_NAME = os.environ.get("CLOUD_NAME")
@@ -204,13 +232,16 @@ def handle_v1(message):
 def handle_v2(message):
     user_id = message.from_user.id
 
+    if maintenance_mode and user_id != OWNER_ID:
+        bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+        return
+
+    # إذا المستخدم غير مصرح له أو لم يشترك بعد، تظهر له روابط الاشتراك فقط إذا البوت ليس في وضع صيانة
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
-        # رسالة ترحيبية قبل روابط الاشتراك
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
 
-        # استمر في إرسال روابط الاشتراك مع حفظ التقدم السابق
         data = pending_check.get(user_id)
         if data and data["category"] == "v2":
             send_required_links(user_id, "v2")
