@@ -27,13 +27,13 @@ def enable_maintenance(message):
         global maintenance_mode
         maintenance_mode = True
         bot.reply_to(message, "✅ تم تفعيل وضع الصيانة. البوت الآن في وضع الصيانة.")
-        # إرسال رسالة لكل المستخدمين أن البوت في الصيانة
-        users = get_all_approved_users()
-        for user_id in users:
-            try:
-                bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
-            except:
-                pass
+        # إرسال رسالة لكل المستخدمين أن البوت في الصيانة (اختياري)
+        # users = get_all_approved_users()
+        # for user_id in users:
+        #     try:
+        #         bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+        #     except:
+        #         pass
 
 @bot.message_handler(commands=['on'])
 def disable_maintenance(message):
@@ -41,11 +41,10 @@ def disable_maintenance(message):
         global maintenance_mode
         maintenance_mode = False
         bot.reply_to(message, "✅ تم إيقاف وضع الصيانة. البوت عاد للعمل.")
-        # إرسال رسالة لكل المستخدمين أن البوت عاد للعمل
         users = get_all_approved_users()
         for user_id in users:
             try:
-                bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة، البوت عاد للعمل. يمكنك استخدام الفيديوهات والاشتراك.")
+                bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة، في زر فيديوهات 2️⃣ للعمل. يمكنك استخدام الفيديوهات والاشتراك.")
             except:
                 pass
 # ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
