@@ -31,7 +31,8 @@ def enable_maintenance(message):
         users = get_all_approved_users()
         for user_id in users:
             try:
-                bot.send_message(user_id, "⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات📂،")
+                bot.send_message(user_id, "✅ شكراً لاشتراك.
+⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات، سيتم قبولك تلقائياً، وإذا لم تشترك سيتم رفضك⚠️")
             except:
                 pass
 
@@ -216,7 +217,7 @@ def start(message):
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
 
-    bot.send_message(user_id, "! اختر الفيدوهات من الأزرار🔞:", reply_markup=main_keyboard())
+    bot.send_message(user_id, "مرحباً! اختر الفيدوهات من الأزرار🔞:", reply_markup=main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
@@ -272,7 +273,7 @@ def send_required_links(chat_id, category):
 
 - {link}
 
-‼️| اشترك ثم ارسل /start"""
+‼️| اشترك ثم اضغط لتحقق 👾.👇🏻"""
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
@@ -291,15 +292,16 @@ def verify_subscription_callback(call):
         pending_check[user_id] = {"category": category, "step": step}
         send_required_links(user_id, category)
     else:
-        bot.send_message(user_id, """⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات📂،""")
+        bot.send_message(user_id, """✅ شكراً لاشتراك.
+⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات، سيتم قبولك تلقائياً، وإذا لم تشترك سيتم رفضك⚠️""")
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
 
 def notify_owner_for_approval(user_id, name, category):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
-        types.InlineKeyboardButton("قبول", callback_data=f"approve_{category}_{user_id}"),
-        types.InlineKeyboardButton("رفض", callback_data=f"reject_{category}_{user_id}")
+        types.InlineKeyboardButton("✅قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
+        types.InlineKeyboardButton("❌رفض المستخدم", callback_data=f"reject_{category}_{user_id}")
     )
     bot.send_message(OWNER_ID, f"طلب جديد من {name}\nالآيدي: {user_id}\nلفيديوهات {category[-1]}", reply_markup=keyboard)
 
