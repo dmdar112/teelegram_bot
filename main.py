@@ -187,15 +187,13 @@ def handle_delete_choice(message):
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
 @bot.message_handler(commands=['start'])
-def start_handler(message):
+def start(message):
     user_id = message.from_user.id
+    first_name = message.from_user.first_name or "لا يوجد اسم"
+    username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد معرف"
 
     if user_id == OWNER_ID:
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("📤 رفع فيديو v1", "📤 رفع فيديو v2")
-        bot.send_message(user_id, "مرحباً بك، يمكنك الآن رفع الفيديوهات 👇", reply_markup=markup)
-    else:
-        bot.send_message(user_id, "مرحباً بك! 👋", reply_markup=owner_keyboard())
+        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
     if not has_notified(user_id):
@@ -345,15 +343,17 @@ def handle_owner_response(call):
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
-@bot.message_handler(func=lambda m: m.text == "فيديوهات1" and m.from_user.id == OWNER_ID)
-def owner_set_v1_mode(message):
-    owner_upload_mode[OWNER_ID] = "v1"
-    bot.send_message(OWNER_ID, "✅ تم تفعيل وضع رفع الفيديوهات لقسم فيديوهات1. الآن أرسل الفيديو ليتم رفعه تلقائيًا.")
+@bot.message_handler(commands=['v1'])
+def set_v1_mode(message):
+    if message.from_user.id == OWNER_ID:
+        owner_upload_mode[message.from_user.id] = "v1"
+        bot.reply_to(message, "سيتم حفظ الفيديوهات التالية في فيديوهات1.")
 
-@bot.message_handler(func=lambda m: m.text == "فيديوهات2" and m.from_user.id == OWNER_ID)
-def owner_set_v2_mode(message):
-    owner_upload_mode[OWNER_ID] = "v2"
-    bot.send_message(OWNER_ID, "✅ تم تفعيل وضع رفع الفيديوهات لقسم فيديوهات2. الآن أرسل الفيديو ليتم رفعه تلقائيًا.")
+@bot.message_handler(commands=['v2'])
+def set_v2_mode(message):
+    if message.from_user.id == OWNER_ID:
+        owner_upload_mode[message.from_user.id] = "v2"
+        bot.reply_to(message, "سيتم حفظ الفيديوهات التالية في فيديوهات2.")
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
@@ -361,21 +361,25 @@ def handle_video(message):
     if user_id == OWNER_ID and user_id in owner_upload_mode:
         category = owner_upload_mode[user_id]
 
+        # تحميل الفيديو من تلغرام
         file_info = bot.get_file(message.video.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
 
+        # حفظ مؤقت
         tmp_filename = f"temp_video_{int(time.time())}.mp4"
         with open(tmp_filename, "wb") as f:
             f.write(downloaded_file)
 
+        # رفع إلى Cloudinary
         try:
             upload_res = cloudinary.uploader.upload_large(tmp_filename, resource_type="video", folder=f"videos_{category}")
             video_url = upload_res.get("secure_url")
 
-            bot.reply_to(message, f"✅ تم رفع الفيديو على السحابة في فيديوهات {category[-1]} بنجاح!\nرابط الفيديو:\n{video_url}")
+            bot.reply_to(message, f"✅ تم رفع الفيديو على السحابة بنجاح!\nرابط الفيديو:\n{video_url}")
         except Exception as e:
             bot.reply_to(message, f"❌ حدث خطأ أثناء رفع الفيديو: {str(e)}")
         finally:
+            # حذف الملف المؤقت
             if os.path.exists(tmp_filename):
                 os.remove(tmp_filename)
 
