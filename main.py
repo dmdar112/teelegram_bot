@@ -41,12 +41,6 @@ def disable_maintenance(message):
         global maintenance_mode
         maintenance_mode = False
         bot.reply_to(message, "✅ تم إيقاف وضع الصيانة. البوت عاد للعمل.")
-        users = get_all_approved_users()
-        for user_id in users:
-            try:
-                bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة في زر الفيديوهات 2. يمكنك الآن استخدام الفيديوهات والاشتراك.")
-            except:
-                pass
 # ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
 
 CLOUD_NAME = os.environ.get("CLOUD_NAME")
@@ -290,7 +284,9 @@ def verify_subscription_callback(call):
         pending_check[user_id] = {"category": category, "step": step}
         send_required_links(user_id, category)
     else:
-        bot.send_message(user_id, """✅ شكراً لاشتراك.\n⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات، سيتم قبولك تلقائياً، وإذا لم تشترك سيتم رفضك⚠️""")
+        bot.send_message(user_id, """
+⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.
+إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️""")
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
 
