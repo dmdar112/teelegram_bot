@@ -269,13 +269,9 @@ def send_required_links(chat_id, category):
     link = links[step]  # 🔴 هذا السطر مهم لتعريف المتغير "link"
 
     text = f"""🚸| عذراً عزيزي .
-🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه
-
-- {link}
-
-‼️| اشترك ثم اضغط لتحقق 👾.👇🏻
+🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه - قناة البوت 👾.👇🏻
+📬: {link}
 """
-
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
