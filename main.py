@@ -187,13 +187,15 @@ def handle_delete_choice(message):
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
 @bot.message_handler(commands=['start'])
-def start(message):
+def start_handler(message):
     user_id = message.from_user.id
-    first_name = message.from_user.first_name or "لا يوجد اسم"
-    username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد معرف"
 
     if user_id == OWNER_ID:
-        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("📤 رفع فيديو v1", "📤 رفع فيديو v2")
+        bot.send_message(user_id, "مرحباً بك، يمكنك الآن رفع الفيديوهات 👇", reply_markup=markup)
+    else:
+        bot.send_message(user_id, "مرحباً بك! 👋", reply_markup=owner_keyboard())
         return
 
     if not has_notified(user_id):
