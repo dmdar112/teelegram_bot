@@ -14,7 +14,7 @@ import cloudinary.uploader
 # متغيرات البيئة
 TOKEN = os.environ.get("TOKEN")
 bot = telebot.TeleBot(TOKEN)
-OWNER_ID = 5881024874  # عدّل رقمك هنا
+OWNER_ID = 7054294622  # عدّل رقمك هنا
 
 maintenance_mode = False
 # هنا بعد تعريف المتغيرات والثوابت اكتب:
@@ -71,8 +71,6 @@ db = client["telegram_bot_db"]
 approved_v1_col = db["approved_v1"]
 approved_v2_col = db["approved_v2"]
 notified_users_col = db["notified_users"]
-
-bot = telebot.TeleBot(TOKEN)
 
 subscribe_links_v1 = [
     "https://t.me/+2L5KrXuCDUA5ZWIy",
