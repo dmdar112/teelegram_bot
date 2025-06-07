@@ -209,7 +209,13 @@ def start(message):
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
 
-    bot.send_message(user_id, "مرحباً! اختر الفيدوهات من الأزرار🔞:", reply_markup=main_keyboard())
+    welcome_message = (
+    "╔════════════════════╗\n"
+    "║ 🔞 مرحباً! اختر الفيدوهات من الأزرار 🏳‍🌈 ║\n"
+    "╚════════════════════╝\n"
+    "⚠️ للكبار فقط +🔞"
+)
+bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
