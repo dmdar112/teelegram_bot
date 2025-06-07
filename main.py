@@ -209,9 +209,11 @@ def start(message):
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
 
-    welcome_message = (
-    "مرحباً! اختر الفيديوهات من الأزرار.\n"
-    "⚠️ المحتوى +18 | للكبار فقط"
+first_name = message.from_user.first_name
+welcome_message = (
+    f"🔞 مرحباً بك {first_name} في البوت!\n"
+    "اختر قسم الفيديوهات من الأزرار بالأسفل 👇\n\n"
+    "⚠️ المحتوى +18 |  للكبار فقط"
 )
 bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
