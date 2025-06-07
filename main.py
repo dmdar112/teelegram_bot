@@ -205,10 +205,20 @@ def handle_v1(message):
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
+
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
-        send_required_links(user_id, "v2")
+        # رسالة ترحيبية قبل روابط الاشتراك
+        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
+
+        # استمر في إرسال روابط الاشتراك مع حفظ التقدم السابق
+        data = pending_check.get(user_id)
+        if data and data["category"] == "v2":
+            send_required_links(user_id, "v2")
+        else:
+            pending_check[user_id] = {"category": "v2", "step": 0}
+            send_required_links(user_id, "v2")
 
 def send_required_links(chat_id, category):
     data = pending_check.get(chat_id, {"category": category, "step": 0})
