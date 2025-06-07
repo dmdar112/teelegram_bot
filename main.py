@@ -216,7 +216,7 @@ def start(message):
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
 
-    bot.send_message(user_id, "! اختر الفيدوهات من الأزرار🪩:", reply_markup=main_keyboard())
+    bot.send_message(user_id, "! اختر الفيدوهات من الأزرار🔞:", reply_markup=main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
@@ -241,7 +241,7 @@ def handle_v2(message):
     user_id = message.from_user.id
 
     if maintenance_mode and user_id != OWNER_ID:
-        bot.send_message(user_id, "⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات📂،")
+        bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
         return
 
     if user_id in load_approved_users(approved_v2_col):
