@@ -53,8 +53,7 @@ subscribe_links_v1 = [
 ]
 
 subscribe_links_v2 = [
-    "https://t.me/R2M199",
-    "https://t.me/SNOKER_VIP",
+
 ]
 
 pending_check = {}
