@@ -44,7 +44,7 @@ def disable_maintenance(message):
         users = get_all_approved_users()
         for user_id in users:
             try:
-                bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة، في زر فيديوهات 2️⃣ للعمل. يمكنك استخدام الفيديوهات والاشتراك.")
+                bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة في زر الفيديوهات 2. يمكنك الآن استخدام الفيديوهات والاشتراك.")
             except:
                 pass
 # ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
