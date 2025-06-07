@@ -53,7 +53,6 @@ subscribe_links_v1 = [
 ]
 
 subscribe_links_v2 = [
-
 ]
 
 pending_check = {}
