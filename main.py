@@ -190,9 +190,18 @@ def handle_delete_choice(message):
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-    bot_username = "znjopabot"  # ضع اسم البوت هنا بدون @
-    channel_invite_link = "https://t.me/+CFA6qHiV0zw1NjRk"  # رابط قناة اشتراك
+    bot_username = "znjopabot"  # ضع اسم البوت بدون @
     verify_link = f"https://t.me/{bot_username}?start=check"
+    OWNER_ID = 7054294622  # ضع هنا آيدي المالك الحقيقي
+
+    # روابط الاشتراك المطلوبة (بدون اسم القناة)
+    REQUIRED_CHANNEL_LINKS = [
+        "https://t.me/+CFA6qHiV0zw1NjRk",
+        "https://t.me/+W2KuzsUu_zcyODIy",
+        "https://t.me/+SPTrcs3tJqhlMDVi",
+        "https://t.me/+2L5KrXuCDUA5ZWIy",
+        "https://t.me/EEObot?start=0007jdwv3c"
+    ]
 
     # إذا كتب المستخدم /start check
     if message.text == "/start check":
@@ -208,7 +217,7 @@ def start(message):
         bot.send_message(user_id, "✅ تم استلام طلبك! الرجاء الانتظار حتى يتم الموافقة عليك من قبل الإدارة.")
         return
 
-    # متابعة تنفيذ /start العادي
+    # رسالة الترحيب
     welcome_message = (
         f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
         "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
@@ -216,10 +225,12 @@ def start(message):
     )
     bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
+    # إذا كان المالك
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
+    # إرسال تنبيه للمالك بدخول مستخدم جديد
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
         new_user_msg = f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
@@ -232,14 +243,14 @@ def start(message):
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
 
-    # إرسال رسالة الاشتراك
-    message_text = (
-        "🚸| عذراً عزيزي.\n"
-        "🔰| عليك الاشتراك عبر الرابط التالي لتتمكن من استخدام البوت:\n\n"
-        f"📢 رابط الاشتراك:\n{channel_invite_link}\n\n"
-        f"✅ بعد الاشتراك [اضغط هنا للتحقق]({verify_link})"
-    )
-    bot.send_message(user_id, message_text, parse_mode='Markdown')
+    # إرسال روابط الاشتراك كنص بدون عرض اسم القناة
+    links_text = "🚸| عذراً عزيزي.\n🔰| عليك الاشتراك عبر الروابط التالية لتتمكن من استخدام البوت:\n\n"
+    for i, link in enumerate(REQUIRED_CHANNEL_LINKS, start=1):
+        links_text += f"{i}- {link}\n"
+
+    links_text += f"\n✅ بعد الاشتراك اضغط هنا للتحقق:\n{verify_link}"
+
+    bot.send_message(user_id, links_text, disable_web_page_preview=True)
     
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
