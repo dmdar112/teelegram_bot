@@ -31,7 +31,7 @@ def enable_maintenance(message):
         users = get_all_approved_users()
         for user_id in users:
             try:
-                bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+                bot.send_message(user_id, "⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات📂،")
             except:
                 pass
 
@@ -221,17 +221,27 @@ def start(message):
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
+
     if user_id in load_approved_users(approved_v1_col):
         send_videos(user_id, "v1")
     else:
-        send_required_links(user_id, "v1")
+        # ✅ عرض رسالة ترحيبية فقط إذا لم يكن مشتركًا بعد
+        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية:")
 
+        # نكمل الاشتراك من حيث توقف المستخدم
+        data = pending_check.get(user_id)
+        if data and data["category"] == "v1":
+            send_required_links(user_id, "v1")
+        else:
+            pending_check[user_id] = {"category": "v1", "step": 0}
+            send_required_links(user_id, "v1")
+            
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
 
     if maintenance_mode and user_id != OWNER_ID:
-        bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+        bot.send_message(user_id, "⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات📂،")
         return
 
     if user_id in load_approved_users(approved_v2_col):
@@ -281,8 +291,7 @@ def verify_subscription_callback(call):
         pending_check[user_id] = {"category": category, "step": step}
         send_required_links(user_id, category)
     else:
-        bot.send_message(user_id, """✅ شكراً لاشتراك.
-⏳ انتظر ثوانٍ حتى نتأكد أنك اشتركت في جميع القنوات، سيتم قبولك تلقائياً، وإذا لم تشترك سيتم رفضك⚠️""")
+        bot.send_message(user_id, """⏳ انتظر ثوانٍ نتحقق أنك اشتركت في جميع القنوات📂،""")
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
 
