@@ -275,6 +275,8 @@ def send_required_links(chat_id, category):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
 def verify_subscription_callback(call):
+    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+
     user_id = call.from_user.id
     _, category, step_str = call.data.split("_")
     step = int(step_str) + 1
@@ -284,11 +286,28 @@ def verify_subscription_callback(call):
         pending_check[user_id] = {"category": category, "step": step}
         send_required_links(user_id, category)
     else:
-        bot.send_message(user_id, """
-⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.
-إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️""")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("🔗 اشترك في القنوات إذا لم تشترك بعد", callback_data=f"resend_{category}")
+        )
+        bot.send_message(
+            user_id,
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
+            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️",
+            reply_markup=markup
+        )
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
+def resend_links(call):
+    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+
+    user_id = call.from_user.id
+    category = call.data.split("_")[1]
+    pending_check[user_id] = {"category": category, "step": 0}
+    send_required_links(user_id, category)
 
 def notify_owner_for_approval(user_id, name, category):
     keyboard = types.InlineKeyboardMarkup()
