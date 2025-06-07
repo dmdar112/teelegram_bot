@@ -13,7 +13,8 @@ import cloudinary.uploader
 
 # متغيرات البيئة
 TOKEN = os.environ.get("TOKEN")
-OWNER_ID = 7054294622  # عدّل رقمك هنا
+bot = telebot.TeleBot(TOKEN)
+OWNER_ID = 5881024874  # عدّل رقمك هنا
 
 maintenance_mode = False
 # هنا بعد تعريف المتغيرات والثوابت اكتب:
@@ -81,6 +82,8 @@ subscribe_links_v1 = [
 ]
 
 subscribe_links_v2 = [
+    "https://t.me/R2M199",
+    "https://t.me/SNOKER_VIP",
 ]
 
 pending_check = {}
@@ -103,9 +106,6 @@ def has_notified(user_id):
 def add_notified_user(user_id):
     if not has_notified(user_id):
         notified_users_col.insert_one({"user_id": user_id})
-
-approved_v1 = load_approved_users(approved_v1_col)
-approved_v2 = load_approved_users(approved_v2_col)
 
 def main_keyboard():
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
@@ -168,7 +168,7 @@ def delete_videos_v2(message):
     except Exception as e:
         bot.send_message(user_id, f"حدث خطأ أثناء جلب الفيديوهات: {str(e)}", reply_markup=owner_keyboard())
 
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_delete)
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
     user_id = message.from_user.id
     data = waiting_for_delete.get(user_id)
@@ -236,7 +236,6 @@ def handle_v2(message):
         bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
         return
 
-    # إذا المستخدم غير مصرح له أو لم يشترك بعد، تظهر له روابط الاشتراك فقط إذا البوت ليس في وضع صيانة
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
@@ -270,6 +269,7 @@ def send_required_links(chat_id, category):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
+
     pending_check[chat_id] = {"category": category, "step": step}
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
