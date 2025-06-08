@@ -186,22 +186,73 @@ def handle_delete_choice(message):
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
+OWNER_ID = 7054294622  # معرف المالك
+bot_username = "znjopabot"  # اسم البوت بدون @
+
+# روابط الاشتراك المطلوبة (بدون اسم القناة)
+REQUIRED_CHANNEL_LINKS = [
+    "https://t.me/+CFA6qHiV0zw1NjRk",
+    "https://t.me/+W2KuzsUu_zcyODIy",
+    "https://t.me/+SPTrcs3tJqhlMDVi",
+    "https://t.me/+2L5KrXuCDUA5ZWIy",
+    "https://t.me/EEObot?start=0007jdwv3c"
+]
+
+# افتراضياً: دوال إدارة المستخدمين الموافق عليهم والتنبيهات (استبدلها بمنطق التخزين عندك)
+approved_users = set()
+notified_users = set()
+
+def add_approved_user(user_id):
+    approved_users.add(user_id)
+
+def remove_approved_user(user_id):
+    approved_users.discard(user_id)
+
+def has_notified(user_id):
+    return user_id in notified_users
+
+def add_notified_user(user_id):
+    notified_users.add(user_id)
+
+def get_all_approved_users():
+    return list(approved_users)
+
+# المعالج لأوامر الموافقة والرفض
+@bot.message_handler(func=lambda message: message.text and (message.text.startswith('/approve_') or message.text.startswith('/reject_')))
+def handle_approval(message):
+    if message.from_user.id != OWNER_ID:
+        bot.reply_to(message, "🚫 أنت لست المالك، لا يمكنك تنفيذ هذا الأمر.")
+        return
+
+    text = message.text
+    if text.startswith('/approve_'):
+        action = 'approve'
+        user_id_str = text[len('/approve_'):]
+    else:
+        action = 'reject'
+        user_id_str = text[len('/reject_'):]
+
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        bot.reply_to(message, "❌ الآيدي غير صحيح.")
+        return
+
+    if action == 'approve':
+        add_approved_user(user_id)
+        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت.")
+        bot.reply_to(message, f"✅ تم قبول المستخدم {user_id}.")
+    else:  # reject
+        remove_approved_user(user_id)
+        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في القنوات ثم أرسل /start مرة أخرى.")
+        bot.reply_to(message, f"❌ تم رفض المستخدم {user_id}.")
+
+# معالج /start
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-    bot_username = "znjopabot"  # ضع اسم البوت بدون @
     verify_link = f"https://t.me/{bot_username}?start=check"
-    OWNER_ID = 7054294622  # ضع هنا آيدي المالك الحقيقي
-
-    # روابط الاشتراك المطلوبة (بدون اسم القناة)
-    REQUIRED_CHANNEL_LINKS = [
-        "https://t.me/+CFA6qHiV0zw1NjRk",
-        "https://t.me/+W2KuzsUu_zcyODIy",
-        "https://t.me/+SPTrcs3tJqhlMDVi",
-        "https://t.me/+2L5KrXuCDUA5ZWIy",
-        "https://t.me/EEObot?start=0007jdwv3c"
-    ]
 
     # إذا كتب المستخدم /start check
     if message.text == "/start check":
