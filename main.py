@@ -268,13 +268,13 @@ def send_required_links(chat_id, category):
 
     link = links[step]  # 🔴 هذا السطر مهم لتعريف المتغير "link"
 
-    text = f"""🚸| عذراً عزيزي .
-🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه
-
- - {link}
+    text = f"""- لطفاً اشترك بالقناة واستخدم البوت .
+- ثم اضغط / تحقق في الاسفل  ~
+- قناة البوت 👾.👇🏻
+📬:  {link}
 """
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك اضغط هنا للتحقق", callback_data=f"verify_{category}_{step}"))
+    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
     pending_check[chat_id] = {"category": category, "step": step}
@@ -294,7 +294,7 @@ def verify_subscription_callback(call):
     else:
         markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton("🔗 اشترك في القنوات إذا لم تشترك بعد", callback_data=f"resend_{category}")
+            types.InlineKeyboardButton("🚸إذا كنت غير مشترك، اشترك الآن🚸", callback_data=f"resend_{category}")
         )
         bot.send_message(
             user_id,
