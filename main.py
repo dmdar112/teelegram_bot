@@ -252,18 +252,7 @@ def handle_approval(message):
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-    bot_username = "znjopabot"  # ضع اسم البوت بدون @
     verify_link = f"https://t.me/{bot_username}?start=check"
-    OWNER_ID = 7054294622  # ضع هنا آيدي المالك الحقيقي
-
-    # روابط الاشتراك المطلوبة
-    REQUIRED_CHANNEL_LINKS = [
-        "https://t.me/+CFA6qHiV0zw1NjRk",
-        "https://t.me/+W2KuzsUu_zcyODIy",
-        "https://t.me/+SPTrcs3tJqhlMDVi",
-        "https://t.me/+2L5KrXuCDUA5ZWIy",
-        "https://t.me/EEObot?start=0007jdwv3c"
-    ]
 
     # إذا كتب المستخدم /start check
     if message.text == "/start check":
@@ -279,34 +268,23 @@ def start(message):
         bot.send_message(user_id, "✅ تم استلام طلبك! الرجاء الانتظار حتى يتم الموافقة عليك من قبل الإدارة.")
         return
 
-    # التحقق من الاشتراك في القنوات
-    if not is_user_subscribed(user_id):  # تحتاج تنفيذ هذه الدالة
-        links_text = "🚸| عذراً عزيزي.\n🔰| عليك الاشتراك عبر الروابط التالية لتتمكن من استخدام البوت:\n\n"
-        for i, link in enumerate(REQUIRED_CHANNEL_LINKS, start=1):
-            links_text += f"{i}- {link}\n"
-        links_text += f"\n✅ بعد الاشتراك اضغط هنا للتحقق:\n{verify_link}"
-        bot.send_message(user_id, links_text, disable_web_page_preview=True)
-        return
-
-    # التحقق من الموافقة اليدوية
-    if not is_user_approved(user_id):  # تحتاج تنفيذ هذه الدالة
-        bot.send_message(user_id, "🚫 لم يتم الموافقة على حسابك بعد. الرجاء الانتظار بعد تقديم الطلب.")
-        return
-
-    # رسالة الترحيب بعد الموافقة
+    # رسالة الترحيب
     welcome_message = (
         f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-        "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
         "⚠️ المحتوى +18 - للكبار فقط!"
     )
-    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+
+    if user_id in load_approved_users(approved_v1_col) or user_id in load_approved_users(approved_v2_col):
+        bot.send_message(user_id, welcome_message + "\n📂اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
+    else:
+        bot.send_message(user_id, welcome_message)
 
     # إذا كان المالك
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
-    # إشعار المالك بدخول جديد
+    # إرسال تنبيه للمالك بدخول مستخدم جديد
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
         new_user_msg = f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
@@ -318,6 +296,7 @@ def start(message):
 """
         bot.send_message(OWNER_ID, new_user_msg)
         add_notified_user(user_id)
+
     # إرسال روابط الاشتراك كنص بدون عرض اسم القناة
     links_text = "🚸| عذراً عزيزي.\n🔰| عليك الاشتراك عبر الروابط التالية لتتمكن من استخدام البوت:\n\n"
     for i, link in enumerate(REQUIRED_CHANNEL_LINKS, start=1):
