@@ -268,18 +268,23 @@ def start(message):
         bot.send_message(user_id, "✅ تم استلام طلبك! الرجاء الانتظار حتى يتم الموافقة عليك من قبل الإدارة.")
         return
 
-    # رسالة الترحيب
-    welcome_message = (
-        f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-        "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
-        "⚠️ المحتوى +18 - للكبار فقط!"
-    )
-    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+   # رسالة الترحيب
+welcome_message = (
+    f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
+    "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
+    "⚠️ المحتوى +18 - للكبار فقط!"
+)
 
-    # إذا كان المالك
-    if user_id == OWNER_ID:
-        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
-        return
+# إذا كان المالك
+if user_id == OWNER_ID:
+    bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+    return
+
+# تحقق إذا كان المستخدم من الموافق عليهم
+if user_id in get_all_approved_users():
+    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+else:
+    bot.send_message(user_id, welcome_message, reply_markup=types.ReplyKeyboardRemove())
 
     # إرسال تنبيه للمالك بدخول مستخدم جديد
     if not has_notified(user_id):
