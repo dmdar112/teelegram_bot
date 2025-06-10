@@ -379,15 +379,17 @@ def notify_owner_for_approval(user_id, name, category):
     bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
 
 def check_user_subscription(user_id):
-    for link in forced_subscribe_links:
-        try:
-            username = link.split("/")[-1]
-            member = bot.get_chat_member(username, user_id)
+    try:
+        for link in forced_subscribe_links:
+            username = link.split("t.me/")[-1].replace("+", "")
+            chat = bot.get_chat(username)
+            member = bot.get_chat_member(chat.id, user_id)
             if member.status in ['left', 'kicked']:
                 return False
-        except:
-            return False
-    return True
+        return True
+    except Exception as e:
+        print(f"❌ خطأ أثناء التحقق من الاشتراك: {e}")
+        return False
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_owner_response(call):
