@@ -127,7 +127,9 @@ def send_videos(user_id, category):
             bot.copy_message(
                 chat_id=user_id,
                 from_chat_id=video["chat_id"],
-                message_id=video["message_id"]
+                message_id=video["message_id"],
+                caption="",
+                caption_entities=None
             )
             time.sleep(1)  # لمنع الحظر أو التقييد
         except Exception as e:
