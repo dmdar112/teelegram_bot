@@ -72,25 +72,6 @@ subscribe_links_v2 = [
     "https://t.me/SNOKER_VIP",
 ]
 
-# روابط الاشتراك الإجباري العام
-forced_subscribe_links = [
-    "https://t.me/BLACK_ROOT1",
-    "https://t.me/SNOKER_VIP",
-    "https://t.me/R2M199"
-]
-
-def send_forced_subscribe_links(chat_id):
-    markup = types.InlineKeyboardMarkup()
-    for link in forced_subscribe_links:
-        markup.add(types.InlineKeyboardButton("اشترك الآن 📲", url=link))
-    markup.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="verify_forced"))
-
-    text = "🔐 لا يمكنك استخدام البوت قبل الاشتراك في القنوات التالية:\n"
-    text += "\n".join([f"• {link}" for link in forced_subscribe_links])
-    text += "\n\nبعد الاشتراك، اضغط على الزر للتحقق ✅"
-
-    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
-
 pending_check = {}
 owner_upload_mode = {}
 waiting_for_broadcast = {}
@@ -223,25 +204,20 @@ def handle_delete_choice(message):
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-
-    # التحقق من الاشتراك الإجباري الحقيقي (قبل أي شيء)
-    if user_id != OWNER_ID:
-        if not check_user_subscription(user_id):
-            send_forced_subscribe_links(user_id)
-            return
-
-    # في حال كان المستخدم هو المالك
+    
+    # رسالة الترحيب
+    welcome_message = (
+    f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
+    "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
+    "⚠️ المحتوى +18 - للكبار فقط!"
+)
+    
+    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+    
+    # باقي منطق دالة start (مثل التحقق من المالك أو الاشتراك)
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
-
-    # رسالة الترحيب للمستخدم العادي
-    welcome_message = (
-        f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-        "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
-        "⚠️ المحتوى +18 - للكبار فقط!"
-    )
-    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
@@ -317,17 +293,6 @@ def send_required_links(chat_id, category):
 
     pending_check[chat_id] = {"category": category, "step": step}
 
-@bot.callback_query_handler(func=lambda call: call.data == "verify_forced")
-def verify_forced_subscription(call):
-    user_id = call.from_user.id
-    bot.answer_callback_query(call.id)
-
-    if check_user_subscription(user_id):
-        bot.send_message(user_id, "✅ تم التحقق من اشتراكك بنجاح! يمكنك الآن استخدام البوت.", reply_markup=main_keyboard())
-        start(call.message)  # لإعادة تشغيل واجهة البداية
-    else:
-        bot.send_message(user_id, "❌ لم يتم التحقق من اشتراكك. تأكد من الاشتراك في جميع القنوات وحاول مرة أخرى.")
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
 def verify_subscription_callback(call):
     bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
@@ -377,19 +342,6 @@ def notify_owner_for_approval(user_id, name, category):
         f"📁 الفئة: فيديوهات {category[-1]}"
     )
     bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
-
-def check_user_subscription(user_id):
-    try:
-        for link in forced_subscribe_links:
-            username = link.split("t.me/")[-1].replace("+", "")
-            chat = bot.get_chat(username)
-            member = bot.get_chat_member(chat.id, user_id)
-            if member.status in ['left', 'kicked']:
-                return False
-        return True
-    except Exception as e:
-        print(f"❌ خطأ أثناء التحقق من الاشتراك: {e}")
-        return False
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_owner_response(call):
