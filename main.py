@@ -112,25 +112,26 @@ def get_all_approved_users():
         user["user_id"] for user in approved_v2_col.find()
     )
 
+# 🟢 أضف هنا دالة send_videos:
 def send_videos(user_id, category):
     collection_name = f"videos_{category}"
-    db_videos_col = db[collection_name]
-
-    videos = list(db_videos_col.find().limit(5))  # عدد الفيديوهات التي سترسل للمستخدم
+    videos_collection = db[collection_name]
+    videos = list(videos_collection.find())
 
     if not videos:
-        bot.send_message(user_id, "🚫 لا توجد فيديوهات حالياً.")
+        bot.send_message(user_id, "❌ لا توجد فيديوهات حالياً في هذا القسم.")
         return
 
     for video in videos:
         try:
-            bot.send_video(
+            bot.copy_message(
                 chat_id=user_id,
-                video=video["file_id"],
-                caption="تم إخفاء الحساب من قبل المستخدم."
+                from_chat_id=video["chat_id"],
+                message_id=video["message_id"]
             )
+            time.sleep(1)  # لمنع الحظر أو التقييد
         except Exception as e:
-            print(f"❌ خطأ في إرسال الفيديو: {e}")
+            print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
@@ -372,28 +373,30 @@ def set_v2_mode(message):
         owner_upload_mode[message.from_user.id] = "v2"
         bot.reply_to(message, "سيتم حفظ الفيديوهات التالية في فيديوهات2.")
 
-@bot.message_handler(content_types=['video'])
-def handle_video(message):
-    user_id = message.from_user.id
-    if user_id == OWNER_ID and user_id in owner_upload_mode:
-        category = owner_upload_mode[user_id]
-
-        # رفع الفيديو إلى القناة الخاصة
-        try:
-            sent_message = bot.send_video(
+sent_message = bot.send_video(
                 chat_id=CHANNEL_ID_V1 if category == "v1" else CHANNEL_ID_V2,
                 video=message.video.file_id,
-                caption=f"فيديو جديد في {category}"
+                caption=message.caption
             )
+
+            # حفظ البيانات في قاعدة البيانات
+            db[f"videos_{category}"].insert_one({
+                "chat_id": sent_message.chat.id,
+                "message_id": sent_message.message_id
+            })
+
+            bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم فيديوهات{category[-1]}")
 
             # حفظ معرف الرسالة ومعرف القناة في قاعدة البيانات
             db_videos_col = db[f"videos_{category}"]
-        db_videos_col.insert_one({
-            "file_id": message.video.file_id,
-            "message_id": sent_message.message_id,
-            "chat_id": sent_message.chat.id
-        })
-        bot.send_message(user_id, f"✅ تم حفظ الفيديو في {category}.")
+            db_videos_col.insert_one({
+                "chat_id": sent_message.chat.id,
+                "message_id": sent_message.message_id,
+                "file_id": message.video.file_id,
+                "timestamp": time.time()
+            })
+
+            bot.reply_to(message, f"✅ تم رفع الفيديو بنجاح إلى {category}.")
 
         except Exception as e:
             bot.reply_to(message, f"❌ فشل في رفع الفيديو: {e}", reply_markup=main_keyboard())
