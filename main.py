@@ -361,45 +361,39 @@ def handle_owner_response(call):
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
-@bot.message_handler(commands=['v1'])
-def set_v1_mode(message):
+@bot.message_handler(commands=['v1', 'v2'])
+def set_upload_mode(message):
     if message.from_user.id == OWNER_ID:
-        owner_upload_mode[message.from_user.id] = "v1"
-        bot.reply_to(message, "سيتم حفظ الفيديوهات التالية في فيديوهات1.")
+        mode = message.text[1:]  # 'v1' أو 'v2'
+        owner_upload_mode[message.from_user.id] = mode
+        bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
 
-@bot.message_handler(commands=['v2'])
-def set_v2_mode(message):
-    if message.from_user.id == OWNER_ID:
-        owner_upload_mode[message.from_user.id] = "v2"
-        bot.reply_to(message, "سيتم حفظ الفيديوهات التالية في فيديوهات2.")
+@bot.message_handler(content_types=['video'])
+def handle_video_upload(message):
+    user_id = message.from_user.id
+    mode = owner_upload_mode.get(user_id)
 
-sent_message = bot.send_video(
-                chat_id=CHANNEL_ID_V1 if category == "v1" else CHANNEL_ID_V2,
-                video=message.video.file_id,
-                caption=message.caption
-            )
+    if user_id != OWNER_ID or not mode:
+        return  # تجاهل أي فيديو من غير المالك أو إن لم يحدد القسم
 
-            # حفظ البيانات في قاعدة البيانات
-            db[f"videos_{category}"].insert_one({
-                "chat_id": sent_message.chat.id,
-                "message_id": sent_message.message_id
-            })
+    # رفع الفيديو إلى القناة الخاصة
+    try:
+        sent = bot.send_video(
+            chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
+            video=message.video.file_id,
+            caption=f"📥 فيديو جديد من المالك - قسم {mode.upper()}",
+        )
+        # تخزين في قاعدة البيانات
+        db[f"videos_{mode}"].insert_one({
+            "chat_id": sent.chat.id,
+            "message_id": sent.message_id
+        })
 
-            bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم فيديوهات{category[-1]}")
+        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
 
-            # حفظ معرف الرسالة ومعرف القناة في قاعدة البيانات
-            db_videos_col = db[f"videos_{category}"]
-            db_videos_col.insert_one({
-                "chat_id": sent_message.chat.id,
-                "message_id": sent_message.message_id,
-                "file_id": message.video.file_id,
-                "timestamp": time.time()
-            })
-
-            bot.reply_to(message, f"✅ تم رفع الفيديو بنجاح إلى {category}.")
-
-        except Exception as e:
-            bot.reply_to(message, f"❌ فشل في رفع الفيديو: {e}", reply_markup=main_keyboard())
+    except Exception as e:
+        print(f"❌ خطأ في رفع الفيديو: {e}")
+        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
 
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
