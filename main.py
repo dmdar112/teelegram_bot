@@ -8,8 +8,7 @@ import telebot
 from telebot import types
 
 from pymongo import MongoClient
-import cloudinary
-import cloudinary.uploader
+
 
 # متغيرات البيئة
 TOKEN = os.environ.get("TOKEN")
@@ -18,6 +17,8 @@ OWNER_ID = 7054294622  # عدّل رقمك هنا
 
 maintenance_mode = False
 # هنا بعد تعريف المتغيرات والثوابت اكتب:
+CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")  # آيدي القناة الخاصة بفيديوهات1
+CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخاصة بفيديوهات2
 
 waiting_for_delete = {}
 
@@ -43,18 +44,12 @@ def disable_maintenance(message):
         bot.reply_to(message, "✅ تم إيقاف وضع الصيانة. البوت عاد للعمل.")
 # ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
 
-CLOUD_NAME = os.environ.get("CLOUD_NAME")
-API_KEY = os.environ.get("API_KEY")
-API_SECRET = os.environ.get("API_SECRET")
+
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 
 # إعداد Cloudinary
-cloudinary.config(
-    cloud_name=CLOUD_NAME,
-    api_key=API_KEY,
-    api_secret=API_SECRET,
-)
+
 
 # إعداد MongoDB
 client = MongoClient(MONGODB_URI)
@@ -120,44 +115,34 @@ def get_all_approved_users():
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
-    try:
-        res = cloudinary.Search().expression("folder:videos_v1").max_results(20).execute()
-        videos = res.get("resources", [])
-        if not videos:
-            bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
-            return
+    db_videos_col = db["videos_v1"]
+    videos = list(db_videos_col.find().limit(20))
+    if not videos:
+        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
+        return
 
-        text = "📋 قائمة فيديوهات1:\n"
-        for i, vid in enumerate(videos, 1):
-            text += f"{i}. {vid['public_id'].split('/')[-1]}\n"
-        text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-
-        bot.send_message(user_id, text)
-        waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
-
-    except Exception as e:
-        bot.send_message(user_id, f"حدث خطأ أثناء جلب الفيديوهات: {str(e)}", reply_markup=owner_keyboard())
+    text = "📋 قائمة فيديوهات1:\n"
+    for i, vid in enumerate(videos, 1):
+        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+    bot.send_message(user_id, text)
+    waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
 def delete_videos_v2(message):
     user_id = message.from_user.id
-    try:
-        res = cloudinary.Search().expression("folder:videos_v2").max_results(20).execute()
-        videos = res.get("resources", [])
-        if not videos:
-            bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
-            return
+    db_videos_col = db["videos_v2"]
+    videos = list(db_videos_col.find().limit(20))
+    if not videos:
+        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
+        return
 
-        text = "📋 قائمة فيديوهات2:\n"
-        for i, vid in enumerate(videos, 1):
-            text += f"{i}. {vid['public_id'].split('/')[-1]}\n"
-        text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-
-        bot.send_message(user_id, text)
-        waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
-
-    except Exception as e:
-        bot.send_message(user_id, f"حدث خطأ أثناء جلب الفيديوهات: {str(e)}", reply_markup=owner_keyboard())
+    text = "📋 قائمة فيديوهات2:\n"
+    for i, vid in enumerate(videos, 1):
+        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+    bot.send_message(user_id, text)
+    waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
@@ -173,9 +158,15 @@ def handle_delete_choice(message):
 
         if 1 <= choice <= len(videos):
             video_to_delete = videos[choice - 1]
-            public_id = video_to_delete["public_id"]
+            chat_id = video_to_delete["chat_id"]
+            message_id = video_to_delete["message_id"]
 
-            cloudinary.uploader.destroy(public_id, resource_type="video")
+            # حذف الرسالة من القناة
+            bot.delete_message(chat_id, message_id)
+
+            # حذف السجل من قاعدة البيانات
+            db_videos_col = db[f"videos_{category}"]
+            db_videos_col.delete_one({"message_id": message_id})
 
             bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} بنجاح.", reply_markup=owner_keyboard())
             waiting_for_delete.pop(user_id)
@@ -367,45 +358,27 @@ def handle_video(message):
     if user_id == OWNER_ID and user_id in owner_upload_mode:
         category = owner_upload_mode[user_id]
 
-        # تحميل الفيديو من تلغرام
-        file_info = bot.get_file(message.video.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-
-        # حفظ مؤقت
-        tmp_filename = f"temp_video_{int(time.time())}.mp4"
-        with open(tmp_filename, "wb") as f:
-            f.write(downloaded_file)
-
-        # رفع إلى Cloudinary
+        # رفع الفيديو إلى القناة الخاصة
         try:
-            upload_res = cloudinary.uploader.upload_large(tmp_filename, resource_type="video", folder=f"videos_{category}")
-            video_url = upload_res.get("secure_url")
+            sent_message = bot.send_video(
+                chat_id=CHANNEL_ID_V1 if category == "v1" else CHANNEL_ID_V2,
+                video=message.video.file_id,
+                caption=f"فيديو جديد في {category}"
+            )
 
-            bot.reply_to(message, f"✅ تم رفع الفيديو على السحابة بنجاح!\nرابط الفيديو:\n{video_url}")
+            # حفظ معرف الرسالة ومعرف القناة في قاعدة البيانات
+            db_videos_col = db[f"videos_{category}"]
+            db_videos_col.insert_one({
+                "chat_id": sent_message.chat.id,
+                "message_id": sent_message.message_id,
+                "file_id": message.video.file_id,
+                "timestamp": time.time()
+            })
+
+            bot.reply_to(message, f"✅ تم رفع الفيديو بنجاح إلى {category}.")
+
         except Exception as e:
-            bot.reply_to(message, f"❌ حدث خطأ أثناء رفع الفيديو: {str(e)}")
-        finally:
-            # حذف الملف المؤقت
-            if os.path.exists(tmp_filename):
-                os.remove(tmp_filename)
-
-    else:
-        bot.reply_to(message, "❌ لا يمكنك إرسال فيديوهات.")
-
-def send_videos(chat_id, category):
-    # استعلام عن فيديوهات من Cloudinary بالمسار المناسب
-    try:
-        res = cloudinary.Search().expression(f"folder:videos_{category}").max_results(20).execute()
-        resources = res.get("resources", [])
-        if not resources:
-            bot.send_message(chat_id, "لا يوجد فيديوهات حالياً.", reply_markup=main_keyboard())
-            return
-
-        for video in resources:
-            url = video["secure_url"]
-            bot.send_video(chat_id, url)
-    except Exception as e:
-        bot.send_message(chat_id, f"حدث خطأ في جلب الفيديوهات: {str(e)}", reply_markup=main_keyboard())
+            bot.reply_to(message, f"❌ فشل في رفع الفيديو: {e}", reply_markup=main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
