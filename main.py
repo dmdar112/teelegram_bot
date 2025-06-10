@@ -112,6 +112,26 @@ def get_all_approved_users():
         user["user_id"] for user in approved_v2_col.find()
     )
 
+def send_videos(user_id, category):
+    collection_name = f"videos_{category}"
+    db_videos_col = db[collection_name]
+
+    videos = list(db_videos_col.find().limit(5))  # عدد الفيديوهات التي سترسل للمستخدم
+
+    if not videos:
+        bot.send_message(user_id, "🚫 لا توجد فيديوهات حالياً.")
+        return
+
+    for video in videos:
+        try:
+            bot.send_video(
+                chat_id=user_id,
+                video=video["file_id"],
+                caption="تم إخفاء الحساب من قبل المستخدم."
+            )
+        except Exception as e:
+            print(f"❌ خطأ في إرسال الفيديو: {e}")
+
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
@@ -368,14 +388,12 @@ def handle_video(message):
 
             # حفظ معرف الرسالة ومعرف القناة في قاعدة البيانات
             db_videos_col = db[f"videos_{category}"]
-            db_videos_col.insert_one({
-                "chat_id": sent_message.chat.id,
-                "message_id": sent_message.message_id,
-                "file_id": message.video.file_id,
-                "timestamp": time.time()
-            })
-
-            bot.reply_to(message, f"✅ تم رفع الفيديو بنجاح إلى {category}.")
+        db_videos_col.insert_one({
+            "file_id": message.video.file_id,
+            "message_id": sent_message.message_id,
+            "chat_id": sent_message.chat.id
+        })
+        bot.send_message(user_id, f"✅ تم حفظ الفيديو في {category}.")
 
         except Exception as e:
             bot.reply_to(message, f"❌ فشل في رفع الفيديو: {e}", reply_markup=main_keyboard())
