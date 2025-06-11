@@ -74,6 +74,7 @@ subscribe_links_v2 = [
 ]
 
 true_subscribe_links = [
+    "https://t.me/BLACK_ROOT1",
     "https://t.me/SNOKER_VIP",
     "https://t.me/R2M199"
 ]
@@ -213,22 +214,47 @@ def handle_start(message):
     user_id = message.from_user.id
     step = true_sub_pending.get(user_id, 0)
 
-    if step < len(true_subscribe_links):
-        try:
-            chat_username = true_subscribe_links[step].split("/")[-1]
-            chat = bot.get_chat(chat_username)
-            member = bot.get_chat_member(chat.id, user_id)
-
-            if member.status in ['member', 'administrator', 'creator']:
-                true_sub_pending[user_id] = step + 1
-                handle_start(message)  # تابع للخطوة التالية
-            else:
-                bot.send_message(user_id, f"🔔 اشترك في القناة التالية ثم أعد إرسال /start:\n\n{true_subscribe_links[step]}")
-        except:
-            bot.send_message(user_id, f"⚠️ تأكد من صحة الرابط أو حاول لاحقًا:\n\n{true_subscribe_links[step]}")
-    else:
+    if step >= len(true_subscribe_links):
         if user_id in true_sub_pending:
-            del true_sub_pending[user_id]  # إزالة من القائمة المؤقتة بعد التحقق الكامل
+            del true_sub_pending[user_id]
+        return start(message)  # نكمل بعد التأكد من الاشتراك في كل القنوات
+
+    try:
+        # استخراج رابط القناة الحالية
+        current_channel = true_subscribe_links[step]
+        channel_username = current_channel.split("t.me/")[-1].replace("+", "")
+
+        # التحقق من حالة العضوية
+        member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+
+        if member.status in ['member', 'administrator', 'creator']:
+            # المستخدم مشترك، ننتقل للقناة التالية
+            true_sub_pending[user_id] = step + 1
+            if step + 1 >= len(true_subscribe_links):
+                del true_sub_pending[user_id]
+                return start(message)
+            else:
+                next_channel = true_subscribe_links[step + 1]
+                bot.send_message(
+                    user_id,
+                    f"✅ أحسنت! تبقى قناة أخرى للاشتراك.\n\n🔔 اشترك في القناة التالية ثم أعد إرسال /start:\n\n{next_channel}"
+                )
+        else:
+            # المستخدم لم يشترك
+            bot.send_message(
+                user_id,
+                f"🔔 يرجى الاشتراك أولاً في القناة التالية ثم أعد إرسال /start:\n\n{current_channel}"
+            )
+    except Exception as e:
+        bot.send_message(
+            user_id,
+            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة أو حاول لاحقاً:\n\n{current_channel}"
+        )
+    
+    # إذا كان المستخدم موجودًا في قائمة الانتظار، نحذفه بعد التحقق
+    if user_id in true_sub_pending:
+        del true_sub_pending[user_id]
+            
         start(message)  # نبدأ البوت بعد التأكد من الاشتراك في الكل
 
 # الدالة الأصلية بعد الاشتراك
