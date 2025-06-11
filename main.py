@@ -74,7 +74,6 @@ subscribe_links_v2 = [
 ]
 
 true_subscribe_links = [
-    "https://t.me/BLACK_ROOT1",
     "https://t.me/SNOKER_VIP",
     "https://t.me/R2M199"
 ]
