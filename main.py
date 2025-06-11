@@ -21,6 +21,7 @@ CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")  # آيدي القناة الخ�
 CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخاصة بفيديوهات2
 
 waiting_for_delete = {}
+true_sub_pending = {}  # {user_id: step}
 
 @bot.message_handler(commands=['off'])
 def enable_maintenance(message):
@@ -70,6 +71,12 @@ subscribe_links_v1 = [
 subscribe_links_v2 = [
     "https://t.me/R2M199",
     "https://t.me/SNOKER_VIP",
+]
+
+true_subscribe_links = [
+    "https://t.me/CHANNEL_1",
+    "https://t.me/CHANNEL_2",
+    "https://t.me/CHANNEL_3"
 ]
 
 pending_check = {}
@@ -200,35 +207,53 @@ def handle_delete_choice(message):
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
+true_sub_pending = {}  # {user_id: step}
+
 @bot.message_handler(commands=['start'])
+def handle_start(message):
+    user_id = message.from_user.id
+    step = true_sub_pending.get(user_id, 0)
+
+    if step < len(true_subscribe_links):
+        try:
+            chat_username = true_subscribe_links[step].split("/")[-1]
+            chat = bot.get_chat(chat_username)
+            member = bot.get_chat_member(chat.id, user_id)
+
+            if member.status in ['member', 'administrator', 'creator']:
+                true_sub_pending[user_id] = step + 1
+                handle_start(message)  # تابع للخطوة التالية
+            else:
+                bot.send_message(user_id, f"🔔 اشترك في القناة التالية ثم أعد إرسال /start:\n\n{true_subscribe_links[step]}")
+        except:
+            bot.send_message(user_id, f"⚠️ تأكد من صحة الرابط أو حاول لاحقًا:\n\n{true_subscribe_links[step]}")
+    else:
+        if user_id in true_sub_pending:
+            del true_sub_pending[user_id]  # إزالة من القائمة المؤقتة بعد التحقق الكامل
+        start(message)  # نبدأ البوت بعد التأكد من الاشتراك في الكل
+
+# الدالة الأصلية بعد الاشتراك
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
-    
-    # رسالة الترحيب
-    welcome_message = (
-    f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-    "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
-    "⚠️ المحتوى +18 - للكبار فقط!"
-)
-    
-    bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
-    
-    # باقي منطق دالة start (مثل التحقق من المالك أو الاشتراك)
+
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
+    bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
+📂اختر قسم الفيديوهات من الأزرار بالأسفل!
+
+⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard())
+
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
-        new_user_msg = f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
------------------------
+        bot.send_message(OWNER_ID, f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
+
 • الاسم : {first_name}
 • الايدي : {user_id}
------------------------
 • عدد الأعضاء الكلي: {total_users}
-"""
-        bot.send_message(OWNER_ID, new_user_msg)
+""")
         add_notified_user(user_id)
     
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
