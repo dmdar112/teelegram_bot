@@ -214,14 +214,14 @@ def handle_start(message):
     user_id = message.from_user.id
     name = message.from_user.first_name
 
-    # تحميل الخطوة الحالية من المتغير أو البدء من 0
+    # تحميل الخطوة الحالية أو البدء من الصفر
     step = true_sub_pending.get(user_id, 0)
 
-    # تحقق من الاشتراك الكامل
+    # التأكد من الاشتراك الكامل
     if step >= len(true_subscribe_links):
         if user_id in true_sub_pending:
             del true_sub_pending[user_id]
-        return start(message)  # ✅ الآن فقط نكمل
+        return start(message)
 
     # محاولة التحقق من القناة الحالية
     try:
@@ -231,33 +231,25 @@ def handle_start(message):
         member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
 
         if member.status in ['member', 'administrator', 'creator']:
-            # ✅ مشترك في القناة الحالية
+            # ✅ المستخدم اشترك، ننتقل للخطوة التالية
             step += 1
             true_sub_pending[user_id] = step
 
             if step >= len(true_subscribe_links):
                 del true_sub_pending[user_id]
-                return start(message)  # ✅ تم الاشتراك بكل القنوات، نكمل
+                return start(message)
 
-            # ⚠️ لم يتم الاشتراك في جميع القنوات بعد
-            next_channel = true_subscribe_links[step]
-            return bot.send_message(
-                user_id,
-                f"✅ أحسنت! تبقى قناة أخرى للاشتراك.\n\n🔔 اشترك في القناة التالية ثم أعد إرسال /start:\n\n{next_channel}"
-            )
-
-        else:
-            # ❌ المستخدم غير مشترك في القناة الحالية
-            return bot.send_message(
-                user_id,
-                f"🔔 يرجى الاشتراك أولاً في القناة التالية ثم أعد إرسال /start:\n\n{current_channel}"
-            )
-
-    except Exception as e:
-        # ⚠️ في حال حدوث خطأ في التحقق من الاشتراك
+        # سواء مشترك أو لا، نطلب منه الاشتراك في القناة التالية فقط
+        next_channel = true_subscribe_links[step]
         return bot.send_message(
             user_id,
-            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة أو حاول لاحقاً:\n\n{current_channel}"
+            f"🔔 يرجى الاشتراك في القناة التالية ثم أعد إرسال /start:\n\n{next_channel}"
+        )
+
+    except Exception as e:
+        return bot.send_message(
+            user_id,
+            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}"
         )
     
     # إذا كان المستخدم موجودًا في قائمة الانتظار، نحذفه بعد التحقق
