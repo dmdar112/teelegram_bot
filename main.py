@@ -74,9 +74,9 @@ subscribe_links_v2 = [
 ]
 
 true_subscribe_links = [
-    "https://t.me/CHANNEL_1",
-    "https://t.me/CHANNEL_2",
-    "https://t.me/CHANNEL_3"
+    "https://t.me/BLACK_ROOT1",
+    "https://t.me/SNOKER_VIP",
+    "https://t.me/R2M199"
 ]
 
 pending_check = {}
