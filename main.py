@@ -56,6 +56,8 @@ MONGODB_URI = os.environ.get("MONGODB_URI")
 client = MongoClient(MONGODB_URI)
 db = client["telegram_bot_db"]
 
+users_col = db["users"]
+
 # مجموعات (Collections)
 approved_v1_col = db["approved_v1"]
 approved_v2_col = db["approved_v2"]
@@ -214,6 +216,23 @@ def handle_start(message):
     user_id = message.from_user.id
     name = message.from_user.first_name
 
+    user = users_col.find_one({"user_id": user_id})
+
+    # إذا المستخدم مشترك سابقًا بحسب قاعدة البيانات
+    if user and user.get("joined") == True:
+        # نتحقق مرة أخرى فعليًا إذا ما زال مشترك في كل القنوات
+        for link in true_subscribe_links:
+            try:
+                channel_username = link.split("t.me/")[-1].replace("+", "")
+                member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+                if member.status not in ['member', 'administrator', 'creator']:
+                    break  # خرج من قناة، نعيد الاشتراك الإجباري
+            except:
+                break  # فشل التحقق، نعيد الاشتراك الإجباري
+        else:
+            # لا يزال مشتركًا بكل القنوات ✅
+            return start(message)
+
     # تحميل الخطوة الحالية أو البدء من الصفر
     step = true_sub_pending.get(user_id, 0)
 
@@ -221,6 +240,13 @@ def handle_start(message):
     if step >= len(true_subscribe_links):
         if user_id in true_sub_pending:
             del true_sub_pending[user_id]
+
+        # تحديث حالة الاشتراك في قاعدة البيانات
+        if not user:
+            users_col.insert_one({"user_id": user_id, "joined": True})
+        else:
+            users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
+
         return start(message)
 
     # محاولة التحقق من القناة الحالية
@@ -236,7 +262,15 @@ def handle_start(message):
             true_sub_pending[user_id] = step
 
             if step >= len(true_subscribe_links):
-                del true_sub_pending[user_id]
+                if user_id in true_sub_pending:
+                    del true_sub_pending[user_id]
+
+                # حفظ حالة الاشتراك في قاعدة البيانات
+                if not user:
+                    users_col.insert_one({"user_id": user_id, "joined": True})
+                else:
+                    users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
+
                 return start(message)
 
         # سواء مشترك أو لا، نطلب منه الاشتراك في القناة التالية فقط
@@ -250,8 +284,7 @@ def handle_start(message):
         return bot.send_message(
             user_id,
             f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}"
-        )
-    
+        )    
     # إذا كان المستخدم موجودًا في قائمة الانتظار، نحذفه بعد التحقق
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
