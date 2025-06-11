@@ -296,8 +296,8 @@ def start(message):
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
     if user_id == OWNER_ID and message.text.strip() == "/start":
-    bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
-    return
+        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+        return
 
     bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
 📂اختر قسم الفيديوهات من الأزرار بالأسفل!
