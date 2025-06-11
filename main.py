@@ -149,13 +149,19 @@ def delete_videos_v1(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
-    if not videos:
-        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
+
+    if not videos or len(videos) == 0:
+        bot.send_message(user_id, "❌ لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
         return
 
     text = "📋 قائمة فيديوهات1:\n"
     for i, vid in enumerate(videos, 1):
-        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+        msg_id = vid.get("message_id")
+        if msg_id:  # نتأكد أن المفتاح موجود
+            text += f"{i}. رسالة رقم: {msg_id}\n"
+        else:
+            text += f"{i}. 🟥 رسالة غير صالحة\n"
+
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
     bot.send_message(user_id, text)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
