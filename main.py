@@ -144,25 +144,19 @@ def send_videos(user_id, category):
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
-@@bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
-    
-    # جلب الفيديوهات (مثلاً أول 20 فقط)
     videos = list(db_videos_col.find().limit(20))
-    
-    # إذا لا يوجد فيديوهات
     if not videos:
-        bot.send_message(user_id, "❌ لا توجد فيديوهات في قسم فيديوهات1.", reply_markup=owner_keyboard())
+        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
         return
 
-    # عرض قائمة الفيديوهات الموجودة
     text = "📋 قائمة فيديوهات1:\n"
     for i, vid in enumerate(videos, 1):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
-    text += "\n🗑 أرسل رقم الفيديو الذي تريد حذفه."
-    
+    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
     bot.send_message(user_id, text)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
 
