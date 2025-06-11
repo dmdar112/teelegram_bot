@@ -150,8 +150,8 @@ def delete_videos_v1(message):
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
     if not videos:
-        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
-        return
+    bot.send_message(user_id, "❌ لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
+    return
 
     text = "📋 قائمة فيديوهات1:\n"
     for i, vid in enumerate(videos, 1):
