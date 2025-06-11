@@ -295,8 +295,9 @@ def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    if message.text == "/start" and user_id == OWNER_ID:
-    return  # تجاهل /start من المالك بدون أي رد
+    if user_id == OWNER_ID:
+        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+        return
 
     bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
 📂اختر قسم الفيديوهات من الأزرار بالأسفل!
