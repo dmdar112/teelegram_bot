@@ -235,6 +235,28 @@ def clean_videos_v1(message):
 
     bot.send_message(user_id, f"تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
+@bot.message_handler(commands=['clean_videos_v2'])
+def clean_videos_v2(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    
+    user_id = message.from_user.id
+    db_videos_col = db["videos_v2"]
+    channel_id = CHANNEL_ID_V2
+
+    videos = list(db_videos_col.find())
+    removed_count = 0
+
+    for vid in videos:
+        message_id = vid['message_id']
+        try:
+            bot.forward_message(chat_id=user_id, from_chat_id=channel_id, message_id=message_id)
+        except Exception as e:
+            db_videos_col.delete_one({'_id': vid['_id']})
+            removed_count += 1
+
+    bot.send_message(user_id, f"تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
