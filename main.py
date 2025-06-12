@@ -148,22 +148,18 @@ def send_videos(user_id, category):
 def delete_videos_v1(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
-
-    # جلب أول 20 فيديو يحتوي على message_id فقط
-    videos = list(db_videos_col.find({"message_id": {"$exists": True}}, {"message_id": 1}).limit(20))
-    
+    videos = list(db_videos_col.find().limit(20))
     if not videos:
-        bot.send_message(user_id, "❌ لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
+        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
         return
 
     text = "📋 قائمة فيديوهات1:\n"
     for i, vid in enumerate(videos, 1):
-        text += f"{i}. رسالة رقم: {vid.get('message_id', 'غير موجود')}\n"
+        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-    
     bot.send_message(user_id, text)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
-    
+
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
 def delete_videos_v2(message):
     user_id = message.from_user.id
@@ -214,6 +210,30 @@ def handle_delete_choice(message):
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
 true_sub_pending = {}  # {user_id: step}
+
+@bot.message_handler(commands=['clean_videos_v1'])
+def clean_videos_v1(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    
+    user_id = message.from_user.id
+    db_videos_col = db["videos_v1"]  # اسم collection لفيديوهات1 في MongoDB
+    channel_id = CHANNEL_ID_V1  # استخدم المتغير الذي عرّفته مسبقًا (آيدي القناة من متغير البيئة)
+
+    videos = list(db_videos_col.find())
+    removed_count = 0
+
+    for vid in videos:
+        message_id = vid['message_id']
+        try:
+            # نجرب نرسل رسالة توجيهية لنفسنا (المالك) من القناة، للتأكد من وجود الرسالة
+            bot.forward_message(chat_id=user_id, from_chat_id=channel_id, message_id=message_id)
+        except Exception as e:
+            # لو فشل، احذف الفيديو من قاعدة البيانات لأنه غير موجود بالقناة
+            db_videos_col.delete_one({'_id': vid['_id']})
+            removed_count += 1
+
+    bot.send_message(user_id, f"تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
