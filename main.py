@@ -168,34 +168,28 @@ def handle_owner_tools_callback(call):
 
     bot.answer_callback_query(call.id) # لإخفاء حالة التحميل من الزر
 
-    # قم بإنشاء رسالة وهمية لتمريرها إلى دوال الحذف والتنظيف التي تتوقع كائن Message
-    # لأن دوال الـ delete_videos و clean_videos تتوقع كائن Message
-    # يمكننا إنشاء كائن Message بسيط يحتوي على user_id
-    temp_message = types.Message(message_id=call.message.message_id, from_user=call.from_user,
-                                 date=call.message.date, chat=call.message.chat,
-                                 json_string=call.message.json_string)
-    temp_message.text = "TEMP_COMMAND_FOR_DELETION_OR_CLEANING" # نص وهمي لتجنب أخطاء
-
     if action == "delete":
         if category == "v1":
-            delete_videos_v1(temp_message)
+            delete_videos_v1(call.message) # نمرر call.message مباشرة
         elif category == "v2":
-            delete_videos_v2(temp_message)
+            delete_videos_v2(call.message) # نمرر call.message مباشرة
     elif action == "upload":
         owner_upload_mode[user_id] = category
-        bot.send_message(user_id, f"✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات{category[-1]}.", reply_markup=owner_keyboard())
+        bot.send_message(user_id, f"✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات{category[-1]}. الآن أرسل الفيديو.", reply_markup=owner_keyboard())
+        # يمكنك أيضاً إرسال رسالة توجيهية هنا للمالك
     elif action == "clean":
         if category == "v1":
-            clean_videos_v1(temp_message)
+            clean_videos_v1(call.message) # نمرر call.message مباشرة
         elif category == "v2":
-            clean_videos_v2(temp_message)
+            clean_videos_v2(call.message) # نمرر call.message مباشرة
 
     # اختياري: يمكنك تعديل الرسالة الأصلية التي تحتوي على الأزرار الفرعية
     # bot.edit_message_text("تم اختيار الأداة.", call.message.chat.id, call.message.message_id, reply_markup=None)
 
+# ----------------------------------------------------------------------
+# الدوال الأصلية للحذف والتنظيف يجب أن تبقى كما هي
+# (لا تحتاج لتغيير في تعريفها `@bot.message_handler` حتى لو لم يتم استدعاؤها مباشرة من الأزرار النصية بعد الآن)
 
-# معالجين delete_videos_v1 و delete_videos_v2 تم تعديل تعريفهما ليتم استدعاؤهما من الـ callback
-# نترك الـ @bot.message_handler كما هو، ولكن الأولوية ستكون للـ callback
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
@@ -216,6 +210,50 @@ def delete_videos_v1(message):
 
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
+
+# ... (باقي كود دالة delete_videos_v2 ودوال التنظيف بنفس المنطق)
+
+# تأكد أن معالج "رجوع" يعيد لوحة مفاتيح المالك الصحيحة
+@bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
+def handle_back_command(message):
+    user_id = message.from_user.id
+
+    # إزالة المستخدم من قائمة الانتظار
+    if user_id in waiting_for_delete:
+        waiting_for_delete.pop(user_id)
+
+    # إعادة لوحة مفاتيح المالك
+    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
+
+# تأكد أيضاً أن دالة `handle_video_upload` تُعيد لوحة مفاتيح المالك بعد الانتهاء
+@bot.message_handler(content_types=['video'])
+def handle_video_upload(message):
+    user_id = message.from_user.id
+    mode = owner_upload_mode.get(user_id)
+
+    if user_id != OWNER_ID or not mode:
+        return
+
+    try:
+        sent = bot.send_video(
+            chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
+            video=message.video.file_id,
+            caption=f"📥 فيديو جديد من المالك - قسم {mode.upper()}",
+        )
+        db[f"videos_{mode}"].insert_one({
+            "chat_id": sent.chat.id,
+            "message_id": sent.message_id
+        })
+
+        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
+        owner_upload_mode.pop(user_id, None)
+        bot.send_message(user_id, "تم الانتهاء من الرفع. يمكنك اختيار أمر آخر.", reply_markup=owner_keyboard()) # مهم هذا السطر
+
+    except Exception as e:
+        print(f"❌ خطأ في رفع الفيديو: {e}")
+        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+        owner_upload_mode.pop(user_id, None) # في حالة الخطأ أيضاً نخرج من وضع الرفع
+        bot.send_message(user_id, "يمكنك اختيار أمر آخر.", reply_markup=owner_keyboard()) # ونعيد لوحة المالك
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
 def delete_videos_v2(message):
