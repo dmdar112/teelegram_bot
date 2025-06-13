@@ -109,6 +109,7 @@ def owner_keyboard():
     markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
     markup.row("رفع فيديوهات1", "رفع فيديوهات2")  # أزرار جديدة لتعيين وضع الرفع
+    markup.row("تنظيف فيديوهات1", "تنظيف فيديوهات2") # أزرار تنظيف الفيديوهات
     markup.row("رسالة جماعية مع صورة")
     return markup
 
@@ -234,14 +235,14 @@ def handle_delete_choice(message):
 
 true_sub_pending = {}  # {user_id: step}
 
-@bot.message_handler(commands=['clean_videos_v1'])
-def clean_videos_v1(message):
-    if message.from_user.id != OWNER_ID:
-        return
-
+# معالج زر "تنظيف فيديوهات1"
+@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات1" and m.from_user.id == OWNER_ID)
+def clean_videos_v1_button(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]  # اسم collection لفيديوهات1 في MongoDB
     channel_id = CHANNEL_ID_V1  # استخدم المتغير الذي عرّفته مسبقًا (آيدي القناة من متغير البيئة)
+
+    bot.send_message(user_id, "جاري تنظيف فيديوهات1... قد يستغرق هذا بعض الوقت.")
 
     videos = list(db_videos_col.find())
     removed_count = 0
@@ -256,16 +257,16 @@ def clean_videos_v1(message):
             db_videos_col.delete_one({'_id': vid['_id']})
             removed_count += 1
 
-    bot.send_message(user_id, f"تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
+    bot.send_message(user_id, f"✅ تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
-@bot.message_handler(commands=['clean_videos_v2'])
-def clean_videos_v2(message):
-    if message.from_user.id != OWNER_ID:
-        return
-
+# معالج زر "تنظيف فيديوهات2"
+@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" and m.from_user.id == OWNER_ID)
+def clean_videos_v2_button(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v2"]
     channel_id = CHANNEL_ID_V2
+
+    bot.send_message(user_id, "جاري تنظيف فيديوهات2... قد يستغرق هذا بعض الوقت.")
 
     videos = list(db_videos_col.find())
     removed_count = 0
@@ -278,7 +279,7 @@ def clean_videos_v2(message):
             db_videos_col.delete_one({'_id': vid['_id']})
             removed_count += 1
 
-    bot.send_message(user_id, f"تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
+    bot.send_message(user_id, f"✅ تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
