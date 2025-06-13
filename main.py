@@ -46,11 +46,7 @@ def disable_maintenance(message):
 # ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
 
 
-
 MONGODB_URI = os.environ.get("MONGODB_URI")
-
-# إعداد Cloudinary
-
 
 # إعداد MongoDB
 client = MongoClient(MONGODB_URI)
@@ -107,10 +103,12 @@ def main_keyboard():
         types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
     )
 
+# 1. تعديل دالة owner_keyboard():
 def owner_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
+    markup.row("رفع فيديوهات1", "رفع فيديوهات2")  # أزرار جديدة لتعيين وضع الرفع
     markup.row("رسالة جماعية مع صورة")
     return markup
 
@@ -121,7 +119,6 @@ def get_all_approved_users():
         user["user_id"] for user in approved_v2_col.find()
     )
 
-# 🟢 أضف هنا دالة send_videos:
 def send_videos(user_id, category):
     collection_name = f"videos_{category}"
     videos_collection = db[collection_name]
@@ -144,18 +141,16 @@ def send_videos(user_id, category):
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
-# ... الكود السابق ...
-
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
-    
+
     # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
     back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     back_markup.add(types.KeyboardButton("رجوع"))
-    
+
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
         return
@@ -164,7 +159,7 @@ def delete_videos_v1(message):
     for i, vid in enumerate(videos, 1):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-    
+
     # إرسال الرسالة مع لوحة المفاتيح الجديدة
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
@@ -174,11 +169,11 @@ def delete_videos_v2(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v2"]
     videos = list(db_videos_col.find().limit(20))
-    
+
     # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
     back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     back_markup.add(types.KeyboardButton("رجوع"))
-    
+
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
         return
@@ -187,7 +182,7 @@ def delete_videos_v2(message):
     for i, vid in enumerate(videos, 1):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-    
+
     # إرسال الرسالة مع لوحة المفاتيح الجديدة
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
@@ -196,15 +191,13 @@ def delete_videos_v2(message):
 @bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
 def handle_back_command(message):
     user_id = message.from_user.id
-    
+
     # إزالة المستخدم من قائمة الانتظار
     if user_id in waiting_for_delete:
         waiting_for_delete.pop(user_id)
-    
+
     # إعادة لوحة مفاتيح المالك
     bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
-
-# ... بقية الكود ...
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
@@ -245,7 +238,7 @@ true_sub_pending = {}  # {user_id: step}
 def clean_videos_v1(message):
     if message.from_user.id != OWNER_ID:
         return
-    
+
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]  # اسم collection لفيديوهات1 في MongoDB
     channel_id = CHANNEL_ID_V1  # استخدم المتغير الذي عرّفته مسبقًا (آيدي القناة من متغير البيئة)
@@ -269,7 +262,7 @@ def clean_videos_v1(message):
 def clean_videos_v2(message):
     if message.from_user.id != OWNER_ID:
         return
-    
+
     user_id = message.from_user.id
     db_videos_col = db["videos_v2"]
     channel_id = CHANNEL_ID_V2
@@ -394,7 +387,7 @@ def start(message):
 • عدد الأعضاء الكلي: {total_users}
 """)
         add_notified_user(user_id)
-    
+
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
@@ -412,7 +405,7 @@ def handle_v1(message):
         else:
             pending_check[user_id] = {"category": "v1", "step": 0}
             send_required_links(user_id, "v1")
-            
+
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
@@ -527,12 +520,18 @@ def handle_owner_response(call):
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
-@bot.message_handler(commands=['v1', 'v2'])
-def set_upload_mode(message):
-    if message.from_user.id == OWNER_ID:
-        mode = message.text[1:]  # 'v1' أو 'v2'
-        owner_upload_mode[message.from_user.id] = mode
-        bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
+
+# 2. إضافة معالجات رسائل جديدة للأزرار "رفع فيديوهات1" و "رفع فيديوهات2":
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
+def set_upload_mode_v1_button(message):
+    owner_upload_mode[message.from_user.id] = 'v1'
+    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
+
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
+def set_upload_mode_v2_button(message):
+    owner_upload_mode[message.from_user.id] = 'v2'
+    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
+
 
 @bot.message_handler(content_types=['video'])
 def handle_video_upload(message):
