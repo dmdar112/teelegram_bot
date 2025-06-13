@@ -170,18 +170,18 @@ def handle_owner_tools_callback(call):
 
     if action == "delete":
         if category == "v1":
-            delete_videos_v1(call.message) # نمرر call.message مباشرة
+            delete_videos_v1(call.message)
         elif category == "v2":
-            delete_videos_v2(call.message) # نمرر call.message مباشرة
+            delete_videos_v2(call.message)
     elif action == "upload":
         owner_upload_mode[user_id] = category
         bot.send_message(user_id, f"✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات{category[-1]}. الآن أرسل الفيديو.", reply_markup=owner_keyboard())
         # يمكنك أيضاً إرسال رسالة توجيهية هنا للمالك
     elif action == "clean":
         if category == "v1":
-            clean_videos_v1(call.message) # نمرر call.message مباشرة
+            clean_videos_v1(call.message)
         elif category == "v2":
-            clean_videos_v2(call.message) # نمرر call.message مباشرة
+            clean_videos_v2(call.message)
 
     # اختياري: يمكنك تعديل الرسالة الأصلية التي تحتوي على الأزرار الفرعية
     # bot.edit_message_text("تم اختيار الأداة.", call.message.chat.id, call.message.message_id, reply_markup=None)
@@ -190,9 +190,9 @@ def handle_owner_tools_callback(call):
 # الدوال الأصلية للحذف والتنظيف يجب أن تبقى كما هي
 # (لا تحتاج لتغيير في تعريفها `@bot.message_handler` حتى لو لم يتم استدعاؤها مباشرة من الأزرار النصية بعد الآن)
 
-@bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
-def delete_videos_v1(message):
-    user_id = message.from_user.id
+# **تم إزالة @bot.message_handler من هنا**
+def delete_videos_v1(message_object): # تم تغيير اسم البارامتر ليكون أكثر عمومية
+    user_id = message_object.from_user.id
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
 
@@ -211,7 +211,26 @@ def delete_videos_v1(message):
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
 
-# ... (باقي كود دالة delete_videos_v2 ودوال التنظيف بنفس المنطق)
+# **تم إزالة @bot.message_handler من هنا**
+def delete_videos_v2(message_object): # تم تغيير اسم البارامتر ليكون أكثر عمومية
+    user_id = message_object.from_user.id
+    db_videos_col = db["videos_v2"]
+    videos = list(db_videos_col.find().limit(20))
+
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+
+    if not videos:
+        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
+        return
+
+    text = "📋 قائمة فيديوهات2:\n"
+    for i, vid in enumerate(videos, 1):
+        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+
+    bot.send_message(user_id, text, reply_markup=back_markup)
+    waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
 
 # تأكد أن معالج "رجوع" يعيد لوحة مفاتيح المالك الصحيحة
 @bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
@@ -255,39 +274,6 @@ def handle_video_upload(message):
         owner_upload_mode.pop(user_id, None) # في حالة الخطأ أيضاً نخرج من وضع الرفع
         bot.send_message(user_id, "يمكنك اختيار أمر آخر.", reply_markup=owner_keyboard()) # ونعيد لوحة المالك
 
-@bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
-def delete_videos_v2(message):
-    user_id = message.from_user.id
-    db_videos_col = db["videos_v2"]
-    videos = list(db_videos_col.find().limit(20))
-
-    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    back_markup.add(types.KeyboardButton("رجوع"))
-
-    if not videos:
-        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
-        return
-
-    text = "📋 قائمة فيديوهات2:\n"
-    for i, vid in enumerate(videos, 1):
-        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
-    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-
-    bot.send_message(user_id, text, reply_markup=back_markup)
-    waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
-
-
-# معالج جديد لزر "رجوع"
-@bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
-def handle_back_command(message):
-    user_id = message.from_user.id
-
-    # إزالة المستخدم من قائمة الانتظار
-    if user_id in waiting_for_delete:
-        waiting_for_delete.pop(user_id)
-
-    # إعادة لوحة مفاتيح المالك
-    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
@@ -324,14 +310,42 @@ def handle_delete_choice(message):
 
 true_sub_pending = {}  # {user_id: step}
 
-@bot.message_handler(commands=['clean_videos_v1']) # هذا المعالج لا يتم استخدامه مباشرة من الأزرار بعد الآن
-def clean_videos_v1(message):
-    if message.from_user.id != OWNER_ID:
+# **تم إزالة @bot.message_handler من هنا**
+def clean_videos_v1(message_object): # تم تغيير اسم البارامتر ليكون أكثر عمومية
+    if message_object.from_user.id != OWNER_ID:
         return
 
-    user_id = message.from_user.id
+    user_id = message_object.from_user.id
     db_videos_col = db["videos_v1"]  # اسم collection لفيديوهات1 في MongoDB
     channel_id = CHANNEL_ID_V1  # استخدم المتغير الذي عرّفته مسبقًا (آيدي القناة من متغير البيئة)
+
+    videos = list(db_videos_col.find())
+    removed_count = 0
+
+    for vid in videos:
+        message_id = vid['message_id']
+        try:
+            # نجرب نرسل رسالة توجيهية لنفسنا (المالك) من القناة، للتأكد من وجود الرسالة
+            # إذا كانت الرسالة موجودة في القناة، ستنجح عملية التوجيه
+            bot.forward_message(chat_id=user_id, from_chat_id=channel_id, message_id=message_id)
+        except Exception as e:
+            # لو فشل التوجيه، فهذا يعني أن الرسالة غير موجودة في القناة أو حدث خطأ
+            # لذلك نحذفها من قاعدة البيانات
+            db_videos_col.delete_one({'_id': vid['_id']})
+            removed_count += 1
+            print(f"تم حذف فيديو غير موجود في القناة (ID: {message_id}) من فيديوهات1. الخطأ: {e}")
+
+
+    bot.send_message(user_id, f"تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
+
+# **تم إزالة @bot.message_handler من هنا**
+def clean_videos_v2(message_object): # تم تغيير اسم البارامتر ليكون أكثر عمومية
+    if message_object.from_user.id != OWNER_ID:
+        return
+
+    user_id = message_object.from_user.id
+    db_videos_col = db["videos_v2"]
+    channel_id = CHANNEL_ID_V2
 
     videos = list(db_videos_col.find())
     removed_count = 0
@@ -345,28 +359,8 @@ def clean_videos_v1(message):
             # لو فشل، احذف الفيديو من قاعدة البيانات لأنه غير موجود بالقناة
             db_videos_col.delete_one({'_id': vid['_id']})
             removed_count += 1
+            print(f"تم حذف فيديو غير موجود في القناة (ID: {message_id}) من فيديوهات2. الخطأ: {e}")
 
-    bot.send_message(user_id, f"تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
-
-@bot.message_handler(commands=['clean_videos_v2']) # هذا المعالج لا يتم استخدامه مباشرة من الأزرار بعد الآن
-def clean_videos_v2(message):
-    if message.from_user.id != OWNER_ID:
-        return
-
-    user_id = message.from_user.id
-    db_videos_col = db["videos_v2"]
-    channel_id = CHANNEL_ID_V2
-
-    videos = list(db_videos_col.find())
-    removed_count = 0
-
-    for vid in videos:
-        message_id = vid['message_id']
-        try:
-            bot.forward_message(chat_id=user_id, from_chat_id=channel_id, message_id=message_id)
-        except Exception as e:
-            db_videos_col.delete_one({'_id': vid['_id']})
-            removed_count += 1
 
     bot.send_message(user_id, f"تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
@@ -386,16 +380,19 @@ def handle_start(message):
                 if member.status not in ['member', 'administrator', 'creator']:
                     true_sub_pending[user_id] = index
                     break
-            except:
+            except Exception as e:
+                # إذا حدث خطأ في التحقق من قناة معينة (مثلاً البوت ليس مشرفًا أو القناة غير موجودة)
+                # نعتبر أن المستخدم لم يشترك فيها ونطلب منه الاشتراك فيها.
+                print(f"Error checking subscription for {link}: {e}")
                 true_sub_pending[user_id] = index
                 break
-        else:
+        else: # هذا الجزء يتم تنفيذه إذا لم يتم كسر الحلقة (أي أن المستخدم مشترك في جميع القنوات)
             return start(message)
 
     # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
     step = true_sub_pending.get(user_id, 0)
 
-    if step >= len(true_subscribe_links):
+    if step >= len(true_subscribe_links): # إذا كان المستخدم قد مر على جميع القنوات بالفعل
         if user_id in true_sub_pending:
             del true_sub_pending[user_id]
 
@@ -404,7 +401,7 @@ def handle_start(message):
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
 
-        return start(message)
+        return start(message) # نعود إلى دالة start العادية بعد التحقق الكامل
 
     try:
         current_channel = true_subscribe_links[step]
@@ -412,10 +409,12 @@ def handle_start(message):
         member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
 
         if member.status in ['member', 'administrator', 'creator']:
+            # إذا كان مشتركاً في القناة الحالية، ننتقل للتحقق من التالية
             step += 1
             true_sub_pending[user_id] = step
 
             if step >= len(true_subscribe_links):
+                # إذا أصبح مشتركاً في جميع القنوات
                 if user_id in true_sub_pending:
                     del true_sub_pending[user_id]
 
@@ -424,9 +423,9 @@ def handle_start(message):
                 else:
                     users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
 
-                return start(message)
+                return start(message) # نعود إلى دالة start العادية بعد التحقق الكامل
 
-        # ✅ إرسال رسالة الاشتراك في القناة التالية
+        # ✅ إرسال رسالة الاشتراك في القناة التالية (أو الحالية إذا لم يكن مشتركاً)
         next_channel = true_subscribe_links[step]
         text = (
             "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
@@ -443,17 +442,19 @@ def handle_start(message):
         return
 
     except Exception as e:
+        print(f"Error in handle_start subscription check: {e}")
         return bot.send_message(
             user_id,
             f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
             reply_markup=types.ReplyKeyboardRemove()
         )
 
-    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
+    # ✅ تنظيف قائمة الانتظار إذا تم التحقق (هذا الجزء ربما لن يتم الوصول إليه)
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
 
-    start(message)
+    start(message) # استدعاء دالة start الأصلية
+
 # الدالة الأصلية بعد الاشتراك
 def start(message):
     user_id = message.from_user.id
