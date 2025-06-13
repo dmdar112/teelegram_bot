@@ -8,6 +8,7 @@ import telebot
 from telebot import types
 
 from pymongo import MongoClient
+from datetime import datetime  # ✅ أضف هذا السطر هنا
 
 
 # متغيرات البيئة
@@ -313,18 +314,21 @@ def handle_start(message):
 
                 return start(message)
 
-        # ✅ إرسال رسالة الاشتراك في القناة التالية مع Markdown لتفعيل زر /start
+        # ✅ إرسال رسالة الاشتراك في القناة التالية مع الوقت لتجديد المحتوى
         next_channel = true_subscribe_links[step]
+        current_time = datetime.now().strftime("%H:%M:%S")
+
         text = (
             "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
             "- ثم اضغط `/start` ~\n"
             "- قناة البوت 👾👇🏻\n"
-            f"📮: {next_channel}"
+            f"📮: {next_channel}\n"
+            f"⌚️ {current_time}"
         )
         bot.send_message(
             user_id,
             text,
-            parse_mode="Markdown",  # ✅ هنا تم التعديل
+            parse_mode="Markdown",
             disable_web_page_preview=True,
             reply_markup=types.ReplyKeyboardRemove()
         )
