@@ -5,10 +5,9 @@ from flask import Flask
 from threading import Thread
 
 import telebot
-from telebot import types  # ← هنا تضع هذا السطر
+from telebot import types
 
 from pymongo import MongoClient
-from datetime import datetime  # ← وهنا تضيف هذا السطر أيضًا
 
 
 # متغيرات البيئة
@@ -265,7 +264,7 @@ def handle_start(message):
 
     user = users_col.find_one({"user_id": user_id})
 
-    # تحقق فعلي من بقاء الاشتراك إن كان مسجل سابقًا في قاعدة البيانات
+    # ✅ تحقق فعلي من بقاء الاشتراك إن كان مسجل سابقًا في قاعدة البيانات
     if user and user.get("joined") == True:
         for index, link in enumerate(true_subscribe_links):
             try:
@@ -278,10 +277,9 @@ def handle_start(message):
                 true_sub_pending[user_id] = index
                 break
         else:
-            # لو تحقق الاشتراك بالكامل، نرجع لـ start
             return start(message)
 
-    # إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
+    # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
     step = true_sub_pending.get(user_id, 0)
 
     if step >= len(true_subscribe_links):
@@ -315,22 +313,17 @@ def handle_start(message):
 
                 return start(message)
 
-        # إرسال رسالة الاشتراك في القناة التالية مع الوقت والتنسيق المناسب
+        # ✅ إرسال رسالة الاشتراك في القناة التالية
         next_channel = true_subscribe_links[step]
-        current_time = datetime.now().strftime("%H:%M:%S")
-
         text = (
-            "🔔 لطفاً اشترك بالقناة واستخدم البوت.<br>"
-            "- ثم اضغط <code>/start</code> ~<br>"
-            "- قناة البوت 👾👇🏻<br>"
-            f"📮: {next_channel}<br>"
-            f"⌚️ {current_time}"
+            "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
+            "- ثم اضغط /start ~\n"
+            "- قناة البوت 👾👇🏻\n"
+            f"📮: {next_channel}"
         )
-
         bot.send_message(
             user_id,
             text,
-            parse_mode="HTML",
             disable_web_page_preview=True,
             reply_markup=types.ReplyKeyboardRemove()
         )
@@ -339,12 +332,11 @@ def handle_start(message):
     except Exception as e:
         return bot.send_message(
             user_id,
-            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:<br><br>{current_channel}",
-            parse_mode="HTML",
+            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
             reply_markup=types.ReplyKeyboardRemove()
         )
 
-    # تنظيف قائمة الانتظار إذا تم التحقق
+    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
 
