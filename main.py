@@ -5,10 +5,10 @@ from flask import Flask
 from threading import Thread
 
 import telebot
-from telebot import types
+from telebot import types  # ← هنا تضع هذا السطر
 
 from pymongo import MongoClient
-from datetime import datetime  # ✅ أضف هذا السطر هنا
+from datetime import datetime  # ← وهنا تضيف هذا السطر أيضًا
 
 
 # متغيرات البيئة
@@ -314,21 +314,22 @@ def handle_start(message):
 
                 return start(message)
 
-        # ✅ إرسال رسالة الاشتراك في القناة التالية مع الوقت لتجديد المحتوى
+        # ✅ إرسال رسالة الاشتراك في القناة التالية مع الوقت والتنسيق المناسب
         next_channel = true_subscribe_links[step]
         current_time = datetime.now().strftime("%H:%M:%S")
 
         text = (
-            "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
-            "- ثم اضغط `/start` ~\n"
-            "- قناة البوت 👾👇🏻\n"
-            f"📮: {next_channel}\n"
+            "🔔 لطفاً اشترك بالقناة واستخدم البوت.<br>"
+            "- ثم اضغط <code>/start</code> ~<br>"
+            "- قناة البوت 👾👇🏻<br>"
+            f"📮: {next_channel}<br>"
             f"⌚️ {current_time}"
         )
+
         bot.send_message(
             user_id,
             text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             disable_web_page_preview=True,
             reply_markup=types.ReplyKeyboardRemove()
         )
@@ -337,7 +338,8 @@ def handle_start(message):
     except Exception as e:
         return bot.send_message(
             user_id,
-            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
+            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:<br><br>{current_channel}",
+            parse_mode="HTML",
             reply_markup=types.ReplyKeyboardRemove()
         )
 
