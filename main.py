@@ -318,7 +318,7 @@ def handle_start(message):
 
         # سواء اشترك أم لا، نطلب منه الاشتراك في القناة التالية فقط
         next_channel = true_subscribe_links[step]
-        text = (
+text = (
     "🔔 لطفاً اشترك بالقناة واستخدم البوت .\n"
     "- ثم اضغط /start ~\n"
     "- قناة البوت 👾.👇🏻\n"
@@ -327,9 +327,7 @@ def handle_start(message):
 return bot.send_message(
     user_id,
     text,
-    
     disable_web_page_preview=True,
-    
     reply_markup=types.ReplyKeyboardRemove()
 )
 
