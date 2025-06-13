@@ -271,15 +271,12 @@ def handle_start(message):
                 channel_username = link.split("t.me/")[-1].replace("+", "")
                 member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
                 if member.status not in ['member', 'administrator', 'creator']:
-                    # خرج من القناة، نعيد التحقق من البداية
                     true_sub_pending[user_id] = index
                     break
             except:
-                # فشل التحقق لأي سبب
                 true_sub_pending[user_id] = index
                 break
         else:
-            # لا يزال مشترك بكل القنوات ✅
             return start(message)
 
     # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
@@ -316,33 +313,34 @@ def handle_start(message):
 
                 return start(message)
 
-        # سواء اشترك أم لا، نطلب منه الاشتراك في القناة التالية فقط
+        # ✅ إرسال رسالة الاشتراك في القناة التالية
         next_channel = true_subscribe_links[step]
-text = (
-    "🔔 لطفاً اشترك بالقناة واستخدم البوت .\n"
-    "- ثم اضغط /start ~\n"
-    "- قناة البوت 👾.👇🏻\n"
-    f"📮: {next_channel}"
-)
-return bot.send_message(
-    user_id,
-    text,
-    disable_web_page_preview=True,
-    reply_markup=types.ReplyKeyboardRemove()
-)
+        text = (
+            "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
+            "- ثم اضغط /start ~\n"
+            "- قناة البوت 👾👇🏻\n"
+            f"📮: {next_channel}"
+        )
+        bot.send_message(
+            user_id,
+            text,
+            disable_web_page_preview=True,
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+        return
 
     except Exception as e:
         return bot.send_message(
             user_id,
             f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
             reply_markup=types.ReplyKeyboardRemove()
-        )    
-    # إذا كان المستخدم موجودًا في قائمة الانتظار، نحذفه بعد التحقق
+        )
+
+    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
-            
-        start(message)  # نبدأ البوت بعد التأكد من الاشتراك في الكل
 
+    start(message)
 # الدالة الأصلية بعد الاشتراك
 def start(message):
     user_id = message.from_user.id
