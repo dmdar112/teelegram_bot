@@ -98,19 +98,18 @@ def add_notified_user(user_id):
     if not has_notified(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
-# 3. تعديل دالة main_keyboard():
 def main_keyboard():
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
-        #types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2") # تمت إزالة هذه الأزرار
+        types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
     )
 
 # 1. تعديل دالة owner_keyboard():
 def owner_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("فيديوهات1", "فيديوهات2") # أزرار أقسام الفيديو للمالك
-    markup.row("حذف فيديوهات1", "حذف فيديوهات2")
-    markup.row("رفع فيديوهات1", "رفع فيديوهات2")  # أزرار لتعيين وضع الرفع
+    # نضع أزرار الوصول لأدوات كل قسم
+    markup.row("أدوات فيديوهات1", "أدوات فيديوهات2")
     markup.row("رسالة جماعية مع صورة")
+    # يمكنك إضافة أي أزرار أخرى عامة هنا
     return markup
 
 def get_all_approved_users():
@@ -142,13 +141,67 @@ def send_videos(user_id, category):
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
+# 2. إضافة معالجات جديدة لأزرار "أدوات فيديوهات1" و "أدوات فيديوهات2"
+@bot.message_handler(func=lambda m: m.text == "أدوات فيديوهات1" and m.from_user.id == OWNER_ID)
+def show_v1_tools(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("حذف فيديوهات1", callback_data="owner_delete_v1"))
+    markup.add(types.InlineKeyboardButton("رفع فيديوهات1", callback_data="owner_upload_v1"))
+    markup.add(types.InlineKeyboardButton("تنظيف فيديوهات1", callback_data="owner_clean_v1"))
+    bot.send_message(message.chat.id, "اختر أداة لإدارة فيديوهات1:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "أدوات فيديوهات2" and m.from_user.id == OWNER_ID)
+def show_v2_tools(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("حذف فيديوهات2", callback_data="owner_delete_v2"))
+    markup.add(types.InlineKeyboardButton("رفع فيديوهات2", callback_data="owner_upload_v2"))
+    markup.add(types.InlineKeyboardButton("تنظيف فيديوهات2", callback_data="owner_clean_v2"))
+    bot.send_message(message.chat.id, "اختر أداة لإدارة فيديوهات2:", reply_markup=markup)
+
+
+# 3. تعديل معالجات Callback Query للأدوات
+@bot.callback_query_handler(func=lambda call: call.data.startswith("owner_"))
+def handle_owner_tools_callback(call):
+    user_id = call.from_user.id
+    action = call.data.split("_")[1] # "delete", "upload", "clean"
+    category = call.data.split("_")[2] # "v1" or "v2"
+
+    bot.answer_callback_query(call.id) # لإخفاء حالة التحميل من الزر
+
+    # قم بإنشاء رسالة وهمية لتمريرها إلى دوال الحذف والتنظيف التي تتوقع كائن Message
+    # لأن دوال الـ delete_videos و clean_videos تتوقع كائن Message
+    # يمكننا إنشاء كائن Message بسيط يحتوي على user_id
+    temp_message = types.Message(message_id=call.message.message_id, from_user=call.from_user,
+                                 date=call.message.date, chat=call.message.chat,
+                                 json_string=call.message.json_string)
+    temp_message.text = "TEMP_COMMAND_FOR_DELETION_OR_CLEANING" # نص وهمي لتجنب أخطاء
+
+    if action == "delete":
+        if category == "v1":
+            delete_videos_v1(temp_message)
+        elif category == "v2":
+            delete_videos_v2(temp_message)
+    elif action == "upload":
+        owner_upload_mode[user_id] = category
+        bot.send_message(user_id, f"✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات{category[-1]}.", reply_markup=owner_keyboard())
+    elif action == "clean":
+        if category == "v1":
+            clean_videos_v1(temp_message)
+        elif category == "v2":
+            clean_videos_v2(temp_message)
+
+    # اختياري: يمكنك تعديل الرسالة الأصلية التي تحتوي على الأزرار الفرعية
+    # bot.edit_message_text("تم اختيار الأداة.", call.message.chat.id, call.message.message_id, reply_markup=None)
+
+
+# معالجين delete_videos_v1 و delete_videos_v2 تم تعديل تعريفهما ليتم استدعاؤهما من الـ callback
+# نترك الـ @bot.message_handler كما هو، ولكن الأولوية ستكون للـ callback
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
 
-    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
     back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     back_markup.add(types.KeyboardButton("رجوع"))
 
@@ -161,7 +214,6 @@ def delete_videos_v1(message):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
 
-    # إرسال الرسالة مع لوحة المفاتيح الجديدة
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
 
@@ -171,7 +223,6 @@ def delete_videos_v2(message):
     db_videos_col = db["videos_v2"]
     videos = list(db_videos_col.find().limit(20))
 
-    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
     back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     back_markup.add(types.KeyboardButton("رجوع"))
 
@@ -184,9 +235,9 @@ def delete_videos_v2(message):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
 
-    # إرسال الرسالة مع لوحة المفاتيح الجديدة
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
+
 
 # معالج جديد لزر "رجوع"
 @bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
@@ -235,7 +286,7 @@ def handle_delete_choice(message):
 
 true_sub_pending = {}  # {user_id: step}
 
-@bot.message_handler(commands=['clean_videos_v1'])
+@bot.message_handler(commands=['clean_videos_v1']) # هذا المعالج لا يتم استخدامه مباشرة من الأزرار بعد الآن
 def clean_videos_v1(message):
     if message.from_user.id != OWNER_ID:
         return
@@ -259,7 +310,7 @@ def clean_videos_v1(message):
 
     bot.send_message(user_id, f"تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
-@bot.message_handler(commands=['clean_videos_v2'])
+@bot.message_handler(commands=['clean_videos_v2']) # هذا المعالج لا يتم استخدامه مباشرة من الأزرار بعد الآن
 def clean_videos_v2(message):
     if message.from_user.id != OWNER_ID:
         return
@@ -281,7 +332,6 @@ def clean_videos_v2(message):
 
     bot.send_message(user_id, f"تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
-# 2. تعديل دالة start():
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
@@ -372,13 +422,13 @@ def start(message):
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
     if user_id == OWNER_ID:
-        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard()) # لوحة مفاتيح المالك
+        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
     bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
 📂اختر قسم الفيديوهات من الأزرار بالأسفل!
 
-⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard()) # لوحة المفاتيح الرئيسية
+⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard())
 
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
@@ -522,26 +572,8 @@ def handle_owner_response(call):
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
-# 3. قم بإلغاء تفعيل أو حذف هذا المعالج القديم:
-# @bot.message_handler(commands=['v1', 'v2'])
-# def set_upload_mode(message):
-#     if message.from_user.id == OWNER_ID:
-#         mode = message.text[1:]  # 'v1' أو 'v2'
-#         owner_upload_mode[message.from_user.id] = mode
-#         bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
 
-# 2. إضافة معالجات الرسائل الجديدة للأزرار "رفع فيديوهات1" و "رفع فيديوهات2":
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
-def set_upload_mode_v1_button(message):
-    owner_upload_mode[message.from_user.id] = 'v1'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
-
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
-def set_upload_mode_v2_button(message):
-    owner_upload_mode[message.from_user.id] = 'v2'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
-
-
+# معالج `handle_video_upload` لا يزال كما هو، حيث يعتمد على `owner_upload_mode`
 @bot.message_handler(content_types=['video'])
 def handle_video_upload(message):
     user_id = message.from_user.id
@@ -564,10 +596,14 @@ def handle_video_upload(message):
         })
 
         bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
+        # بعد الرفع، نعود لوحة المالك الرئيسية
+        owner_upload_mode.pop(user_id, None) # نخرج من وضع الرفع بعد الرفع
+        bot.send_message(user_id, "تم الانتهاء من الرفع. يمكنك اختيار أمر آخر.", reply_markup=owner_keyboard())
 
     except Exception as e:
         print(f"❌ خطأ في رفع الفيديو: {e}")
         bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+
 
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
