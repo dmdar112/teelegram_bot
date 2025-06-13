@@ -265,7 +265,7 @@ def handle_start(message):
 
     user = users_col.find_one({"user_id": user_id})
 
-    # ✅ تحقق فعلي من بقاء الاشتراك إن كان مسجل سابقًا في قاعدة البيانات
+    # تحقق فعلي من بقاء الاشتراك إن كان مسجل سابقًا في قاعدة البيانات
     if user and user.get("joined") == True:
         for index, link in enumerate(true_subscribe_links):
             try:
@@ -278,9 +278,10 @@ def handle_start(message):
                 true_sub_pending[user_id] = index
                 break
         else:
+            # لو تحقق الاشتراك بالكامل، نرجع لـ start
             return start(message)
 
-    # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
+    # إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
     step = true_sub_pending.get(user_id, 0)
 
     if step >= len(true_subscribe_links):
@@ -314,7 +315,7 @@ def handle_start(message):
 
                 return start(message)
 
-        # ✅ إرسال رسالة الاشتراك في القناة التالية مع الوقت والتنسيق المناسب
+        # إرسال رسالة الاشتراك في القناة التالية مع الوقت والتنسيق المناسب
         next_channel = true_subscribe_links[step]
         current_time = datetime.now().strftime("%H:%M:%S")
 
@@ -343,7 +344,7 @@ def handle_start(message):
             reply_markup=types.ReplyKeyboardRemove()
         )
 
-    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
+    # تنظيف قائمة الانتظار إذا تم التحقق
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
 
