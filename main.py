@@ -98,17 +98,18 @@ def add_notified_user(user_id):
     if not has_notified(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
+# 3. تعديل دالة main_keyboard():
 def main_keyboard():
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
-        types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
+        #types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2") # تمت إزالة هذه الأزرار
     )
 
 # 1. تعديل دالة owner_keyboard():
 def owner_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("فيديوهات1", "فيديوهات2")
+    markup.row("فيديوهات1", "فيديوهات2") # أزرار أقسام الفيديو للمالك
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
-    markup.row("رفع فيديوهات1", "رفع فيديوهات2")  # أزرار جديدة لتعيين وضع الرفع
+    markup.row("رفع فيديوهات1", "رفع فيديوهات2")  # أزرار لتعيين وضع الرفع
     markup.row("رسالة جماعية مع صورة")
     return markup
 
@@ -280,6 +281,7 @@ def clean_videos_v2(message):
 
     bot.send_message(user_id, f"تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
+# 2. تعديل دالة start():
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
@@ -370,13 +372,13 @@ def start(message):
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
     if user_id == OWNER_ID:
-        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard()) # لوحة مفاتيح المالك
         return
 
     bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
 📂اختر قسم الفيديوهات من الأزرار بالأسفل!
 
-⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard())
+⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard()) # لوحة المفاتيح الرئيسية
 
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
@@ -520,8 +522,15 @@ def handle_owner_response(call):
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
+# 3. قم بإلغاء تفعيل أو حذف هذا المعالج القديم:
+# @bot.message_handler(commands=['v1', 'v2'])
+# def set_upload_mode(message):
+#     if message.from_user.id == OWNER_ID:
+#         mode = message.text[1:]  # 'v1' أو 'v2'
+#         owner_upload_mode[message.from_user.id] = mode
+#         bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
 
-# 2. إضافة معالجات رسائل جديدة للأزرار "رفع فيديوهات1" و "رفع فيديوهات2":
+# 2. إضافة معالجات الرسائل الجديدة للأزرار "رفع فيديوهات1" و "رفع فيديوهات2":
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v1_button(message):
     owner_upload_mode[message.from_user.id] = 'v1'
