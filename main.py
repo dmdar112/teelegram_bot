@@ -144,11 +144,18 @@ def send_videos(user_id, category):
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
+# ... الكود السابق ...
+
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
+    
+    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+    
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
         return
@@ -157,7 +164,9 @@ def delete_videos_v1(message):
     for i, vid in enumerate(videos, 1):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-    bot.send_message(user_id, text)
+    
+    # إرسال الرسالة مع لوحة المفاتيح الجديدة
+    bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
@@ -165,6 +174,11 @@ def delete_videos_v2(message):
     user_id = message.from_user.id
     db_videos_col = db["videos_v2"]
     videos = list(db_videos_col.find().limit(20))
+    
+    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+    
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
         return
@@ -173,8 +187,24 @@ def delete_videos_v2(message):
     for i, vid in enumerate(videos, 1):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-    bot.send_message(user_id, text)
+    
+    # إرسال الرسالة مع لوحة المفاتيح الجديدة
+    bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
+
+# معالج جديد لزر "رجوع"
+@bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
+def handle_back_command(message):
+    user_id = message.from_user.id
+    
+    # إزالة المستخدم من قائمة الانتظار
+    if user_id in waiting_for_delete:
+        waiting_for_delete.pop(user_id)
+    
+    # إعادة لوحة مفاتيح المالك
+    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
+
+# ... بقية الكود ...
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
