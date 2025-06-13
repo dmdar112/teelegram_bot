@@ -321,6 +321,9 @@ def handle_start(message):
         return bot.send_message(
             user_id,
             f"🔔 يرجى الاشتراك في القناة التالية ثم أعد إرسال /start:\n\n{next_channel}",
+            
+            disable_web_page_preview=True,
+            
             reply_markup=types.ReplyKeyboardRemove()
         )
 
