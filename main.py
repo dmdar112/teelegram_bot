@@ -318,14 +318,18 @@ def handle_start(message):
 
         # سواء اشترك أم لا، نطلب منه الاشتراك في القناة التالية فقط
         next_channel = true_subscribe_links[step]
-        return bot.send_message(
-            user_id,
-            f"🔔 يرجى الاشتراك في القناة التالية ثم أعد إرسال /start:\n\n{next_channel}",
-            
-            disable_web_page_preview=True,
-            
-            reply_markup=types.ReplyKeyboardRemove()
-        )
+        text = (
+    "🔔 لطفاً اشترك بالقناة واستخدم البوت .\n"
+    "- ثم اضغط /start ~\n"
+    "- قناة البوت 👾.👇🏻\n"
+    f"📮: {next_channel}"
+)
+return bot.send_message(
+    user_id,
+    text,
+    disable_web_page_preview=True,
+    reply_markup=types.ReplyKeyboardRemove()
+)
 
     except Exception as e:
         return bot.send_message(
