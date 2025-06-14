@@ -273,6 +273,7 @@ def clean_videos_v2_button(message):
 
     bot.send_message(user_id, f"✅ تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
+
 def check_true_subscription(user_id, first_name):
     """
     يقوم بالتحقق من جميع قنوات true_subscribe_links بشكل متسلسل
@@ -281,78 +282,67 @@ def check_true_subscription(user_id, first_name):
     # تهيئة الخطوة الحالية: إذا لم يكن المستخدم موجودًا في true_sub_pending، ابدأ من 0
     step = true_sub_pending.get(user_id, 0)
     
-    # التأكد أن خطوة البداية لا تتجاوز عدد القنوات المتاحة
-    if step >= len(true_subscribe_links):
-        step = 0 # أعد تعيينها لتبدأ من البداية إذا كان قد أكملها
-
-    # هنا يأتي التعديل: لن نستخدم زر للتحقق بعد الآن
-    # سنعرض كل الروابط الإجبارية مرة واحدة
-    channels_to_check = []
-    
-    # التحقق من جميع القنوات
-    all_subscribed = True
-    for index, current_channel_link in enumerate(true_subscribe_links):
+    # حلقة للتحقق من الاشتراكات المتسلسلة
+    while step < len(true_subscribe_links):
+        current_channel_link = true_subscribe_links[step]
         try:
             channel_identifier = current_channel_link.split("t.me/")[-1]
-            
-            # بالنسبة للقنوات العامة (@username) يمكننا التحقق
-            if not channel_identifier.startswith('+'):
+            is_subscribed = False
+
+            # محاولة التحقق من الاشتراك
+            if not channel_identifier.startswith('+'): # قناة عامة (@username)
                 channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
                 member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
-                if member.status not in ['member', 'administrator', 'creator']:
-                    all_subscribed = False
-                    channels_to_check.append(current_channel_link)
+                if member.status in ['member', 'administrator', 'creator']:
+                    is_subscribed = True
             else: # رابط دعوة خاص (يبدأ بـ +)
-                # لا يمكن التحقق التلقائي، لذا نفترض أنه غير مشترك ونضيفه للقائمة
-                # أو إذا كان قد مر من هنا قبلها، فهذا يعني أننا طلبنا منه الاشتراك بالفعل
-                # لتفادي الحلقة اللانهائية هنا، سنعرض كل الروابط في رسالة واحدة
-                all_subscribed = False
-                channels_to_check.append(current_channel_link)
-            
+                # لا يمكن التحقق تلقائيًا من الاشتراك في الروابط الخاصة بدون أن يكون البوت مشرفاً
+                # وحتى لو كان مشرفاً، فإن get_chat_member قد لا يعمل مع الروابط نفسها.
+                # لذا، سنفترض أنه غير مشترك ونطلب منه الاشتراك.
+                # إذا كان قد اشترك بالفعل، سيتم تجاوز هذا في المرة القادمة عند إرسال /start
+                pass # سنعتبر أنه لم يشترك بعد ونطلب منه فتح الرابط
+
+            if not is_subscribed:
+                # إذا لم يكن مشتركًا في القناة الحالية، اطلب منه الاشتراك
+                # ولا نرسل أي أزرار Inline
+                text = (
+                    "🔔 لطفاً اشترك في القناة التالية:\n"
+                    f"📮: {current_channel_link}\n\n"
+                    "⚠️ بعد الاشتراك، أعد إرسال الأمر /start للمتابعة."
+                )
+                bot.send_message(user_id, text, disable_web_page_preview=True)
+                true_sub_pending[user_id] = step # حفظ الخطوة الحالية
+                return # توقف هنا وانتظر من المستخدم أن يرسل /start مرة أخرى
+
+            # إذا كان مشتركًا (أو تجاوزنا فحص القناة الخاصة بنجاح)، انتقل للخطوة التالية
+            step += 1
+            true_sub_pending[user_id] = step # تحديث الخطوة للقناة التالية
+
         except Exception as e:
             print(f"❌ Error checking channel {current_channel_link} for user {user_id}: {e}")
-            all_subscribed = False # اعتبره غير مشترك بسبب الخطأ
-            channels_to_check.append(current_channel_link) # أضف القناة المتسببة في الخطأ
+            # في حالة الخطأ، نطلب من المستخدم المحاولة مرة أخرى عند /start
+            text = (
+                f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
+                "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة إذا كانت عامة، ثم أعد إرسال الأمر /start."
+            )
+            bot.send_message(user_id, text, disable_web_page_preview=True)
+            true_sub_pending[user_id] = step # ابقَ على نفس الخطوة ليحاول مرة أخرى
+            return # توقف هنا وانتظر تفاعل المستخدم
 
-    if all_subscribed:
-        # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
-        if user_id in true_sub_pending:
-            del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
+    # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
+    if user_id in true_sub_pending:
+        del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
 
-        # تحديث حالة الاشتراك في قاعدة البيانات
-        user_data_db = users_col.find_one({"user_id": user_id})
-        if not user_data_db:
-            users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
-        else:
-            users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
-
-        # استدعاء المنطق الفعلي بعد التحقق
-        send_start_welcome_message(user_id, first_name)
+    # تحديث حالة الاشتراك في قاعدة البيانات
+    user_data_db = users_col.find_one({"user_id": user_id})
+    if not user_data_db:
+        users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
     else:
-        # إذا لم يكن مشتركًا في جميع القنوات، أرسل له رسالة واحدة بكل الروابط المطلوبة
-        # مع ملاحظة أن المستخدم يجب أن يعود ويرسل /start يدوياً بعد الاشتراك
-        text = "🔔 لطفاً اشترك في القنوات التالية جميعها:\n\n"
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        for i, link in enumerate(channels_to_check):
-            # محاولة استخراج اسم القناة من الرابط لعرضه على الزر
-            channel_name = link.split('/')[-1]
-            if channel_name.startswith('+'):
-                channel_name = f"قناة خاصة {i+1}" # اسم افتراضي للقنوات الخاصة
-            
-            text += f"- اشترك هنا: {link}\n" # لا يزال يعرض الرابط كنص
-            markup.add(types.InlineKeyboardButton(f"اشترك في {channel_name}", url=link))
-        
-        text += "\n\n⚠️ بعد الاشتراك في جميع القنوات، أعد إرسال الأمر /start."
-        
-        bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-        
-        # لا نحفظ true_sub_pending هنا لأننا لا نتوقع كول باك من زر "تحقق"
-        # بل نتوقع أن يرسل المستخدم /start يدوياً مرة أخرى.
-        # إذا أردت حفظ الخطوة لكي يتم تذكيره بأي قناة لم يشترك بها،
-        # ستحتاج إلى إعادة هيكلة منطق check_true_subscription ليكون متسلسلاً بشكل صارم.
-        # في هذه الطريقة، نحن نطلب منه الاشتراك في كل شيء مرة واحدة.
-        true_sub_pending[user_id] = 0 # أعد تعيينه ليبدأ من الصفر في المرة القادمة
+        users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
+
+    # استدعاء المنطق الفعلي بعد التحقق
+    send_start_welcome_message(user_id, first_name)
+
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -366,7 +356,6 @@ def handle_start(message):
         return
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
-    # حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
     check_true_subscription(user_id, first_name)
 
 
@@ -389,17 +378,7 @@ def send_start_welcome_message(user_id, first_name):
         add_notified_user(user_id)
 
 
-# --- تم حذف handle_check_true_subscription_callback لأننا لم نعد نستخدمها للتحقق ---
-# @bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
-# def handle_check_true_subscription_callback(call):
-#     """
-#     معالج لـ callback_data "check_true_subscription"
-#     التي تُرسل عند الضغط على زر "لقد اشتركت، اضغط هنا للمتابعة".
-#     """
-#     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
-#     user_id = call.from_user.id
-#     first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
-#     check_true_subscription(user_id, first_name)
+# --- لا يوجد معالج callback_query_handler لـ "check_true_subscription" في هذه الطريقة ---
 
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
@@ -455,7 +434,7 @@ def handle_v2(message):
             send_required_links(user_id, "v2")
 
 def send_required_links(chat_id, category):
-    """إرسال روابط الاشتراك المطلوبة."""
+    """إرسال روابط الاشتراك المطلوبة (للاشتراكات الاختيارية)."""
     data = pending_check.get(chat_id, {"category": category, "step": 0})
     step = data["step"]
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
@@ -468,17 +447,15 @@ def send_required_links(chat_id, category):
 
     link = links[step]
 
-    # هنا نستخدم زر Inline برابط مباشر
+    # هنا نستخدم زر Inline برابط مباشر (هذا لقنوات فيديوهات1/2)
     markup = types.InlineKeyboardMarkup()
-    # حاول استخراج اسم القناة لجعله نص الزر
     channel_name = link.split('/')[-1]
     if channel_name.startswith('+'):
-        # يمكن تغيير هذا النص ليناسب قنواتك الخاصة
         channel_name = f"اشترك في القناة الخاصة {step + 1}"
     
     markup.add(types.InlineKeyboardButton(f"اشترك في {channel_name}", url=link))
     
-    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة.
+    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة .
 - قناة البوت 👾.👇🏻
 """
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
@@ -494,10 +471,6 @@ def verify_subscription_callback(call):
     _, category, step_str = call.data.split("_")
     step = int(step_str) + 1
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
-
-    # هنا تحتاج إلى تنفيذ التحقق الفعلي من الاشتراك في القناة الحالية
-    # يمكنك استخدام get_chat_member هنا لروابط القنوات التي يمكن التحقق منها
-    # أو ببساطة المضي قدمًا إذا كانت هي الخطوة الأخيرة في سلسلة الاشتراك الاختياري
 
     if step < len(links):
         pending_check[user_id] = {"category": category, "step": step}
