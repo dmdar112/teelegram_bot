@@ -15,36 +15,15 @@ TOKEN = os.environ.get("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 OWNER_ID = 7054294622  # عدّل رقمك هنا
 
-maintenance_mode = False
-# هنا بعد تعريف المتغيرات والثوابت اكتب:
-CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")  # آيدي القناة الخاصة بفيديوهات1
-CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخاصة بفيديوهات2
+maintenance_mode = False # هذا المتغير يتحكم بوضع صيانة فيديوهات2 فقط
+
+# آيدي القناة الخاصة بفيديوهات1
+CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")
+# آيدي القناة الخاصة بفيديوهات2
+CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")
 
 waiting_for_delete = {}
 true_sub_pending = {}  # {user_id: step}
-
-@bot.message_handler(commands=['off'])
-def enable_maintenance(message):
-    if message.from_user.id == OWNER_ID:
-        global maintenance_mode
-        maintenance_mode = True
-        bot.reply_to(message, "✅ تم تفعيل وضع الصيانة. البوت الآن في وضع الصيانة.")
-        # إرسال رسالة لكل المستخدمين أن البوت في الصيانة (اختياري)
-        # users = get_all_approved_users()
-        # for user_id in users:
-        #     try:
-        #         bot.send_message(user_id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
-        #     except:
-        #         pass
-
-@bot.message_handler(commands=['on'])
-def disable_maintenance(message):
-    if message.from_user.id == OWNER_ID:
-        global maintenance_mode
-        maintenance_mode = False
-        bot.reply_to(message, "✅ تم إيقاف وضع الصيانة. البوت عاد للعمل.")
-# ثم يبدأ الكود الأساسي (تهيئة البوت، الدوال، المعالجات ... الخ)
-
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 
@@ -82,38 +61,46 @@ owner_upload_mode = {}
 waiting_for_broadcast = {}
 
 def load_approved_users(collection):
+    """تحميل المستخدمين الموافق عليهم من قاعدة البيانات."""
     return set(doc["user_id"] for doc in collection.find())
 
 def add_approved_user(collection, user_id):
+    """إضافة مستخدم موافق عليه إلى قاعدة البيانات."""
     if not collection.find_one({"user_id": user_id}):
         collection.insert_one({"user_id": user_id})
 
 def remove_approved_user(collection, user_id):
+    """إزالة مستخدم موافق عليه من قاعدة البيانات."""
     collection.delete_one({"user_id": user_id})
 
 def has_notified(user_id):
+    """التحقق مما إذا كان المستخدم قد تم إبلاغه من قبل."""
     return notified_users_col.find_one({"user_id": user_id}) is not None
 
 def add_notified_user(user_id):
+    """إضافة مستخدم تم إبلاغه إلى قاعدة البيانات."""
     if not has_notified(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
 def main_keyboard():
+    """إنشاء لوحة المفاتيح الرئيسية للمستخدم العادي."""
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
         types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
     )
 
-# 1. تعديل دالة owner_keyboard():
 def owner_keyboard():
+    """إنشاء لوحة مفاتيح المالك مع أزرار التحكم الجديدة."""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
-    markup.row("رفع فيديوهات1", "رفع فيديوهات2")  # أزرار جديدة لتعيين وضع الرفع
-    markup.row("تنظيف فيديوهات1", "تنظيف فيديوهات2") # أزرار تنظيف الفيديوهات
+    markup.row("رفع فيديوهات1", "رفع فيديوهات2")
+    markup.row("تنظيف فيديوهات1", "تنظيف فيديوهات2")
+    markup.row("تفعيل صيانة فيديوهات2", "إيقاف صيانة فيديوهات2") # أزرار جديدة لوضع الصيانة
     markup.row("رسالة جماعية مع صورة")
     return markup
 
 def get_all_approved_users():
+    """الحصول على جميع المستخدمين الموافق عليهم من كلا القسمين."""
     return set(
         user["user_id"] for user in approved_v1_col.find()
     ).union(
@@ -121,6 +108,7 @@ def get_all_approved_users():
     )
 
 def send_videos(user_id, category):
+    """إرسال الفيديوهات من قسم معين إلى المستخدم."""
     collection_name = f"videos_{category}"
     videos_collection = db[collection_name]
     videos = list(videos_collection.find())
@@ -144,6 +132,7 @@ def send_videos(user_id, category):
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
 def delete_videos_v1(message):
+    """معالج لزر حذف فيديوهات1."""
     user_id = message.from_user.id
     db_videos_col = db["videos_v1"]
     videos = list(db_videos_col.find().limit(20))
@@ -167,6 +156,7 @@ def delete_videos_v1(message):
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
 def delete_videos_v2(message):
+    """معالج لزر حذف فيديوهات2."""
     user_id = message.from_user.id
     db_videos_col = db["videos_v2"]
     videos = list(db_videos_col.find().limit(20))
@@ -188,9 +178,9 @@ def delete_videos_v2(message):
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
 
-# معالج جديد لزر "رجوع"
 @bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
 def handle_back_command(message):
+    """معالج لزر الرجوع أثناء عملية الحذف."""
     user_id = message.from_user.id
 
     # إزالة المستخدم من قائمة الانتظار
@@ -202,6 +192,7 @@ def handle_back_command(message):
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
+    """معالج لاختيار الفيديو المراد حذفه من قبل المالك."""
     user_id = message.from_user.id
     data = waiting_for_delete.get(user_id)
     if not data:
@@ -233,14 +224,13 @@ def handle_delete_choice(message):
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
-true_sub_pending = {}  # {user_id: step}
-
 # معالج زر "تنظيف فيديوهات1"
 @bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات1" and m.from_user.id == OWNER_ID)
 def clean_videos_v1_button(message):
+    """معالج لزر تنظيف فيديوهات1."""
     user_id = message.from_user.id
-    db_videos_col = db["videos_v1"]  # اسم collection لفيديوهات1 في MongoDB
-    channel_id = CHANNEL_ID_V1  # استخدم المتغير الذي عرّفته مسبقًا (آيدي القناة من متغير البيئة)
+    db_videos_col = db["videos_v1"]
+    channel_id = CHANNEL_ID_V1
 
     bot.send_message(user_id, "جاري تنظيف فيديوهات1... قد يستغرق هذا بعض الوقت.")
 
@@ -262,6 +252,7 @@ def clean_videos_v1_button(message):
 # معالج زر "تنظيف فيديوهات2"
 @bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" and m.from_user.id == OWNER_ID)
 def clean_videos_v2_button(message):
+    """معالج لزر تنظيف فيديوهات2."""
     user_id = message.from_user.id
     db_videos_col = db["videos_v2"]
     channel_id = CHANNEL_ID_V2
@@ -283,6 +274,7 @@ def clean_videos_v2_button(message):
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
+    """معالج لأمر /start للتحقق من الاشتراك."""
     user_id = message.from_user.id
     name = message.from_user.first_name
 
@@ -293,15 +285,27 @@ def handle_start(message):
         for index, link in enumerate(true_subscribe_links):
             try:
                 channel_username = link.split("t.me/")[-1].replace("+", "")
-                member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
-                if member.status not in ['member', 'administrator', 'creator']:
+                # حاول الحصول على معلومات القناة باستخدام get_chat لتحديد ما إذا كانت عامة أم لا
+                chat_info = bot.get_chat(chat_id=f"@{channel_username}")
+                if chat_info.type == 'channel': # تأكد أنها قناة عامة
+                    member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+                    if member.status not in ['member', 'administrator', 'creator']:
+                        true_sub_pending[user_id] = index
+                        break
+                elif chat_info.type == 'private': # إذا كانت قناة خاصة، حاول الانضمام أولاً
+                    # For private channels, direct check with get_chat_member might not work
+                    # without the user being explicitly added or clicking an invite link.
+                    # This part needs careful handling or relies on the user clicking the link.
+                    # For simplicity, we'll assume the link itself will guide them.
                     true_sub_pending[user_id] = index
                     break
-            except:
+            except Exception as e:
+                # إذا حدث خطأ (مثل القناة غير موجودة أو البوت ليس مشرفًا)، اعتبر أن المستخدم غير مشترك
+                print(f"Error checking channel {link}: {e}")
                 true_sub_pending[user_id] = index
                 break
         else:
-            return start(message)
+            return start_actual_logic(message) # إذا كان مشتركًا في الكل، انتقل إلى منطق البداية
 
     # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
     step = true_sub_pending.get(user_id, 0)
@@ -315,7 +319,7 @@ def handle_start(message):
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
 
-        return start(message)
+        return start_actual_logic(message)
 
     try:
         current_channel = true_subscribe_links[step]
@@ -335,7 +339,7 @@ def handle_start(message):
                 else:
                     users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
 
-                return start(message)
+                return start_actual_logic(message)
 
         # ✅ إرسال رسالة الاشتراك في القناة التالية
         next_channel = true_subscribe_links[step]
@@ -354,19 +358,22 @@ def handle_start(message):
         return
 
     except Exception as e:
-        return bot.send_message(
+        print(f"Error in handle_start subscription check: {e}")
+        bot.send_message(
             user_id,
             f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
             reply_markup=types.ReplyKeyboardRemove()
         )
+        return
 
     # ✅ تنظيف قائمة الانتظار إذا تم التحقق
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
 
-    start(message)
-# الدالة الأصلية بعد الاشتراك
-def start(message):
+    start_actual_logic(message)
+
+def start_actual_logic(message):
+    """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك."""
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
@@ -391,6 +398,7 @@ def start(message):
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
+    """معالج لزر فيديوهات1."""
     user_id = message.from_user.id
 
     if user_id in load_approved_users(approved_v1_col):
@@ -409,6 +417,7 @@ def handle_v1(message):
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
+    """معالج لزر فيديوهات2 مع التحقق من وضع الصيانة."""
     user_id = message.from_user.id
 
     if maintenance_mode and user_id != OWNER_ID:
@@ -428,6 +437,7 @@ def handle_v2(message):
             send_required_links(user_id, "v2")
 
 def send_required_links(chat_id, category):
+    """إرسال روابط الاشتراك المطلوبة."""
     data = pending_check.get(chat_id, {"category": category, "step": 0})
     step = data["step"]
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
@@ -438,7 +448,7 @@ def send_required_links(chat_id, category):
         pending_check.pop(chat_id, None)
         return
 
-    link = links[step]  # 🔴 هذا السطر مهم لتعريف المتغير "link"
+    link = links[step]
 
     text = f"""- لطفاً اشترك بالقناة واستخدم البوت .
 - ثم اضغط / تحقق في الاسفل  ~
@@ -453,6 +463,7 @@ def send_required_links(chat_id, category):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
 def verify_subscription_callback(call):
+    """معالج للتحقق من الاشتراك عبر الأزرار."""
     bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
 
     user_id = call.from_user.id
@@ -480,6 +491,7 @@ def verify_subscription_callback(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
 def resend_links(call):
+    """إعادة إرسال روابط الاشتراك عند طلب المستخدم."""
     bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
 
     user_id = call.from_user.id
@@ -488,6 +500,7 @@ def resend_links(call):
     send_required_links(user_id, category)
 
 def notify_owner_for_approval(user_id, name, category):
+    """إرسال إشعار للمالك بطلب انضمام جديد."""
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
         types.InlineKeyboardButton("✅ قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
@@ -503,6 +516,7 @@ def notify_owner_for_approval(user_id, name, category):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_owner_response(call):
+    """معالج لاستجابة المالك (قبول أو رفض)."""
     parts = call.data.split("_")
     action, category, user_id = parts[0], parts[1], int(parts[2])
 
@@ -522,20 +536,35 @@ def handle_owner_response(call):
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
 
-# 2. إضافة معالجات رسائل جديدة للأزرار "رفع فيديوهات1" و "رفع فيديوهات2":
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v1_button(message):
+    """تعيين وضع الرفع لقسم فيديوهات1."""
     owner_upload_mode[message.from_user.id] = 'v1'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
 
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v2_button(message):
+    """تعيين وضع الرفع لقسم فيديوهات2."""
     owner_upload_mode[message.from_user.id] = 'v2'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
 
+# معالج لزر تفعيل وضع صيانة فيديوهات2
+@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+def enable_maintenance_button(message):
+    global maintenance_mode
+    maintenance_mode = True
+    bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
+
+# معالج لزر إيقاف وضع صيانة فيديوهات2
+@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+def disable_maintenance_button(message):
+    global maintenance_mode
+    maintenance_mode = False
+    bot.reply_to(message, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2. البوت عاد للعمل في هذا القسم.")
 
 @bot.message_handler(content_types=['video'])
 def handle_video_upload(message):
+    """معالج لرفع الفيديوهات من قبل المالك."""
     user_id = message.from_user.id
     mode = owner_upload_mode.get(user_id)
 
@@ -563,11 +592,13 @@ def handle_video_upload(message):
 
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
+    """طلب صورة لرسالة جماعية."""
     bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
     waiting_for_broadcast["photo"] = True
 
 @bot.message_handler(content_types=['photo'])
 def receive_broadcast_photo(message):
+    """استقبال الصورة للرسالة الجماعية."""
     if waiting_for_broadcast.get("photo") and message.from_user.id == OWNER_ID:
         waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
         waiting_for_broadcast["photo"] = False
@@ -576,6 +607,7 @@ def receive_broadcast_photo(message):
 
 @bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
 def receive_broadcast_text(message):
+    """استقبال نص الرسالة الجماعية وإرسالها."""
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
@@ -585,7 +617,8 @@ def receive_broadcast_text(message):
             try:
                 bot.send_photo(user_id, photo_id, caption=text)
                 sent_count += 1
-            except Exception:
+            except Exception as e:
+                print(f"Error sending broadcast to {user_id}: {e}")
                 pass
         bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
         waiting_for_broadcast.clear()
@@ -595,12 +628,15 @@ app = Flask('')
 
 @app.route('/')
 def home():
+    """المسار الرئيسي للخادم الويب."""
     return "Bot is running"
 
 def run():
+    """تشغيل خادم الويب."""
     app.run(host='0.0.0.0', port=3000)
 
 def keep_alive():
+    """تشغيل الخادم في موضوع منفصل."""
     t = Thread(target=run)
     t.start()
 
