@@ -285,76 +285,74 @@ def check_true_subscription(user_id, first_name):
     if step >= len(true_subscribe_links):
         step = 0 # أعد تعيينها لتبدأ من البداية إذا كان قد أكملها
 
-    for index in range(step, len(true_subscribe_links)):
-        current_channel_link = true_subscribe_links[index]
+    # هنا يأتي التعديل: لن نستخدم زر للتحقق بعد الآن
+    # سنعرض كل الروابط الإجبارية مرة واحدة
+    channels_to_check = []
+    
+    # التحقق من جميع القنوات
+    all_subscribed = True
+    for index, current_channel_link in enumerate(true_subscribe_links):
         try:
             channel_identifier = current_channel_link.split("t.me/")[-1]
             
-            # محاولة الحصول على معلومات القناة لمعرفة نوعها (عامة أم خاصة)
-            # إذا كانت القناة خاصة، فإن bot.get_chat_member قد لا يعمل
-            # إلا إذا كان البوت بالفعل مشرفاً في القناة
-            
-            # في حال كانت القناة عامة (@username)
+            # بالنسبة للقنوات العامة (@username) يمكننا التحقق
             if not channel_identifier.startswith('+'):
                 channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
                 member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
                 if member.status not in ['member', 'administrator', 'creator']:
-                    # إذا لم يكن مشتركًا في القناة الحالية
-                    true_sub_pending[user_id] = index # احفظ الخطوة التي توقف عندها
-                    text = (
-                        "🔔 لطفاً اشترك في القناة التالية واضغط على الزر أدناه للمتابعة:\n"
-                        f"📮: {current_channel_link}"
-                    )
-                    markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
-                    bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                    return # توقف هنا وانتظر تفاعل المستخدم
+                    all_subscribed = False
+                    channels_to_check.append(current_channel_link)
             else: # رابط دعوة خاص (يبدأ بـ +)
-                # بالنسبة للروابط الخاصة، لا يمكن التحقق من الاشتراك بسهولة باستخدام get_chat_member
-                # إلا إذا كان البوت قد تمت إضافته للقناة كإداري
-                # أفضل طريقة هي تقديم الرابط وتوقع أن المستخدم سيضغط عليه ثم يعود ليتحقق
-                # لتجنب التعقيد، سنعتبر أن المستخدم يجب أن يضغط على الرابط ثم يعود للتحقق
-                # وسنطلب منه دائمًا التحقق عبر الزر
-                true_sub_pending[user_id] = index # احفظ الخطوة
-                text = (
-                    "🔔 لطفاً اشترك في القناة التالية واضغط على الزر أدناه للمتابعة:\n"
-                    f"📮: {current_channel_link}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
-                bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                return # توقف هنا وانتظر تفاعل المستخدم
+                # لا يمكن التحقق التلقائي، لذا نفترض أنه غير مشترك ونضيفه للقائمة
+                # أو إذا كان قد مر من هنا قبلها، فهذا يعني أننا طلبنا منه الاشتراك بالفعل
+                # لتفادي الحلقة اللانهائية هنا، سنعرض كل الروابط في رسالة واحدة
+                all_subscribed = False
+                channels_to_check.append(current_channel_link)
             
-            # إذا كان مشتركًا أو تم تجاوز فحص القناة الخاصة بنجاح، استمر في الحلقة
-            true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
-
         except Exception as e:
-            # يمكن أن يحدث خطأ إذا كانت القناة غير موجودة، أو البوت ليس مشرفًا، أو مشكلة في API
             print(f"❌ Error checking channel {current_channel_link} for user {user_id}: {e}")
-            true_sub_pending[user_id] = index # ابقَ على نفس الخطوة ليحاول مرة أخرى
-            text = (
-                f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
-                "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة، ثم حاول الضغط على الزر مرة أخرى."
-            )
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
-            bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-            return # توقف هنا
+            all_subscribed = False # اعتبره غير مشترك بسبب الخطأ
+            channels_to_check.append(current_channel_link) # أضف القناة المتسببة في الخطأ
 
-    # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
-    if user_id in true_sub_pending:
-        del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
+    if all_subscribed:
+        # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
+        if user_id in true_sub_pending:
+            del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
 
-    # تحديث حالة الاشتراك في قاعدة البيانات
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if not user_data_db:
-        users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
+        # تحديث حالة الاشتراك في قاعدة البيانات
+        user_data_db = users_col.find_one({"user_id": user_id})
+        if not user_data_db:
+            users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
+        else:
+            users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
+
+        # استدعاء المنطق الفعلي بعد التحقق
+        send_start_welcome_message(user_id, first_name)
     else:
-        users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
-
-    # استدعاء المنطق الفعلي بعد التحقق
-    send_start_welcome_message(user_id, first_name)
-
+        # إذا لم يكن مشتركًا في جميع القنوات، أرسل له رسالة واحدة بكل الروابط المطلوبة
+        # مع ملاحظة أن المستخدم يجب أن يعود ويرسل /start يدوياً بعد الاشتراك
+        text = "🔔 لطفاً اشترك في القنوات التالية جميعها:\n\n"
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        
+        for i, link in enumerate(channels_to_check):
+            # محاولة استخراج اسم القناة من الرابط لعرضه على الزر
+            channel_name = link.split('/')[-1]
+            if channel_name.startswith('+'):
+                channel_name = f"قناة خاصة {i+1}" # اسم افتراضي للقنوات الخاصة
+            
+            text += f"- اشترك هنا: {link}\n" # لا يزال يعرض الرابط كنص
+            markup.add(types.InlineKeyboardButton(f"اشترك في {channel_name}", url=link))
+        
+        text += "\n\n⚠️ بعد الاشتراك في جميع القنوات، أعد إرسال الأمر /start."
+        
+        bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
+        
+        # لا نحفظ true_sub_pending هنا لأننا لا نتوقع كول باك من زر "تحقق"
+        # بل نتوقع أن يرسل المستخدم /start يدوياً مرة أخرى.
+        # إذا أردت حفظ الخطوة لكي يتم تذكيره بأي قناة لم يشترك بها،
+        # ستحتاج إلى إعادة هيكلة منطق check_true_subscription ليكون متسلسلاً بشكل صارم.
+        # في هذه الطريقة، نحن نطلب منه الاشتراك في كل شيء مرة واحدة.
+        true_sub_pending[user_id] = 0 # أعد تعيينه ليبدأ من الصفر في المرة القادمة
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -391,16 +389,17 @@ def send_start_welcome_message(user_id, first_name):
         add_notified_user(user_id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
-def handle_check_true_subscription_callback(call):
-    """
-    معالج لـ callback_data "check_true_subscription"
-    التي تُرسل عند الضغط على زر "لقد اشتركت، اضغط هنا للمتابعة".
-    """
-    bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
-    user_id = call.from_user.id
-    first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
-    check_true_subscription(user_id, first_name)
+# --- تم حذف handle_check_true_subscription_callback لأننا لم نعد نستخدمها للتحقق ---
+# @bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
+# def handle_check_true_subscription_callback(call):
+#     """
+#     معالج لـ callback_data "check_true_subscription"
+#     التي تُرسل عند الضغط على زر "لقد اشتركت، اضغط هنا للمتابعة".
+#     """
+#     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
+#     user_id = call.from_user.id
+#     first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
+#     check_true_subscription(user_id, first_name)
 
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
@@ -410,7 +409,6 @@ def handle_v1(message):
     first_name = message.from_user.first_name or "مستخدم"
 
     # قبل السماح بالوصول إلى فيديوهات1، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
-    # هنا يجب أن نتحقق من حالة "joined: True" في قاعدة البيانات بدلاً من true_sub_pending
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
         bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.")
@@ -470,12 +468,19 @@ def send_required_links(chat_id, category):
 
     link = links[step]
 
-    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة .
-- قناة البوت 👾.👇🏻
-📬:  {link}
-"""
+    # هنا نستخدم زر Inline برابط مباشر
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_{category}_{step}"))
+    # حاول استخراج اسم القناة لجعله نص الزر
+    channel_name = link.split('/')[-1]
+    if channel_name.startswith('+'):
+        # يمكن تغيير هذا النص ليناسب قنواتك الخاصة
+        channel_name = f"اشترك في القناة الخاصة {step + 1}"
+    
+    markup.add(types.InlineKeyboardButton(f"اشترك في {channel_name}", url=link))
+    
+    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة.
+- قناة البوت 👾.👇🏻
+"""
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
     pending_check[chat_id] = {"category": category, "step": step}
