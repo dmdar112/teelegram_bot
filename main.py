@@ -14,6 +14,7 @@ from pymongo import MongoClient
 TOKEN = os.environ.get("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 OWNER_ID = 7054294622  # عدّل رقمك هنا
+BOT_USERNAME = "znjopabot"  # *** مهم جداً: استبدل هذا باسم المستخدم الخاص ببوتك (بدون @) ***
 
 maintenance_mode = False # هذا المتغير يتحكم بوضع صيانة فيديوهات2 فقط
 
@@ -299,18 +300,21 @@ def check_true_subscription(user_id, first_name):
                 # لا يمكن التحقق تلقائيًا من الاشتراك في الروابط الخاصة بدون أن يكون البوت مشرفاً
                 # وحتى لو كان مشرفاً، فإن get_chat_member قد لا يعمل مع الروابط نفسها.
                 # لذا، سنفترض أنه غير مشترك ونطلب منه الاشتراك.
-                # إذا كان قد اشترك بالفعل، سيتم تجاوز هذا في المرة القادمة عند إرسال /start
                 pass # سنعتبر أنه لم يشترك بعد ونطلب منه فتح الرابط
 
             if not is_subscribed:
                 # إذا لم يكن مشتركًا في القناة الحالية، اطلب منه الاشتراك
-                # ولا نرسل أي أزرار Inline
+                # وسنجعل /start رابطًا قابلاً للضغط
+                
+                # بناء النص مع /start كـ URL
+                start_link_text = f"[{telebot.formatting.escape_markdown('/start')}](tg://resolve?domain={BOT_USERNAME}&start=)"
+                
                 text = (
                     "🔔 لطفاً اشترك في القناة التالية:\n"
                     f"📮: {current_channel_link}\n\n"
-                    "⚠️ بعد الاشتراك، أعد إرسال الأمر /start للمتابعة."
+                    f"⚠️ بعد الاشتراك، اضغط {start_link_text} للمتابعة."
                 )
-                bot.send_message(user_id, text, disable_web_page_preview=True)
+                bot.send_message(user_id, text, disable_web_page_preview=True, parse_mode='MarkdownV2')
                 true_sub_pending[user_id] = step # حفظ الخطوة الحالية
                 return # توقف هنا وانتظر من المستخدم أن يرسل /start مرة أخرى
 
@@ -321,11 +325,16 @@ def check_true_subscription(user_id, first_name):
         except Exception as e:
             print(f"❌ Error checking channel {current_channel_link} for user {user_id}: {e}")
             # في حالة الخطأ، نطلب من المستخدم المحاولة مرة أخرى عند /start
+            
+            # بناء النص مع /start كـ URL
+            start_link_text = f"[{telebot.formatting.escape_markdown('/start')}](tg://resolve?domain={BOT_USERNAME}&start=)"
+            
             text = (
                 f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
-                "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة إذا كانت عامة، ثم أعد إرسال الأمر /start."
+                "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة إذا كانت عامة، ثم اضغط "
+                f"{start_link_text}."
             )
-            bot.send_message(user_id, text, disable_web_page_preview=True)
+            bot.send_message(user_id, text, disable_web_page_preview=True, parse_mode='MarkdownV2')
             true_sub_pending[user_id] = step # ابقَ على نفس الخطوة ليحاول مرة أخرى
             return # توقف هنا وانتظر تفاعل المستخدم
 
