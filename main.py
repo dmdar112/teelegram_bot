@@ -272,6 +272,66 @@ def clean_videos_v2_button(message):
 
     bot.send_message(user_id, f"✅ تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
+# دالة مساعدة جديدة للتحقق من الاشتراكات الفعلية
+def check_true_subscription(user_id):
+    """
+    يقوم بالتحقق من جميع قنوات true_subscribe_links بشكل متسلسل
+    ويدفع المستخدم للاشتراك في القناة التالية إذا لم يكن مشتركًا.
+    """
+    user = users_col.find_one({"user_id": user_id})
+    # الحصول على الخطوة الحالية، أو البدء من 0
+    step = true_sub_pending.get(user_id, 0)
+
+    # التحقق من جميع القنوات بدءًا من الخطوة الحالية
+    for index in range(step, len(true_subscribe_links)):
+        current_channel_link = true_subscribe_links[index]
+        try:
+            channel_username = current_channel_link.split("t.me/")[-1].replace("+", "")
+            member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+
+            if member.status not in ['member', 'administrator', 'creator']:
+                # إذا لم يكن مشتركًا في القناة الحالية، اطلب منه الاشتراك
+                true_sub_pending[user_id] = index # احفظ الخطوة التي توقف عندها
+                text = (
+                    "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
+                    "- ثم اضغط الزر بالأسفل ~\n"
+                    "- قناة البوت 👾👇🏻\n"
+                    f"📮: {current_channel_link}"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
+                bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
+                return # توقف هنا وانتظر تفاعل المستخدم
+            # إذا كان مشتركًا، استمر في الحلقة للتحقق من القناة التالية
+            true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
+        except Exception as e:
+            print(f"Error checking channel {current_channel_link} for user {user_id}: {e}")
+            bot.send_message(
+                user_id,
+                f"⚠️ تعذر التحقق من الاشتراك في القناة: {current_channel_link}. يرجى التأكد أن البوت مشرف فيها. حاول مرة أخرى بالضغط على /start.",
+                reply_markup=types.ReplyKeyboardRemove()
+            )
+            # يمكن هنا إزالة المستخدم من true_sub_pending للسماح له بالمحاولة مرة أخرى من البداية
+            if user_id in true_sub_pending:
+                del true_sub_pending[user_id]
+            return
+
+    # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
+    if user_id in true_sub_pending:
+        del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
+
+    # تحديث حالة الاشتراك في قاعدة البيانات
+    if not user:
+        users_col.insert_one({"user_id": user_id, "joined": True})
+    else:
+        users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
+
+    # استدعاء المنطق الفعلي بعد التحقق
+    # نحتاج إلى إنشاء Dummy message object أو تعديل start_actual_logic لقبول user_id مباشرة
+    # لتجنب التعقيد، سنقوم بإرسال رسالة الترحيب مباشرة هنا
+    send_start_welcome_message(user_id, user.get("first_name", "لا يوجد اسم") if user else "لا يوجد اسم")
+
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     """معالج لأمر /start للتحقق من الاشتراك."""
@@ -280,103 +340,16 @@ def handle_start(message):
 
     user = users_col.find_one({"user_id": user_id})
 
-    # ✅ تحقق فعلي من بقاء الاشتراك إن كان مسجل سابقًا في قاعدة البيانات
-    if user and user.get("joined") == True:
-        for index, link in enumerate(true_subscribe_links):
-            try:
-                channel_username = link.split("t.me/")[-1].replace("+", "")
-                # حاول الحصول على معلومات القناة باستخدام get_chat لتحديد ما إذا كانت عامة أم لا
-                chat_info = bot.get_chat(chat_id=f"@{channel_username}")
-                if chat_info.type == 'channel': # تأكد أنها قناة عامة
-                    member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
-                    if member.status not in ['member', 'administrator', 'creator']:
-                        true_sub_pending[user_id] = index
-                        break
-                elif chat_info.type == 'private': # إذا كانت قناة خاصة، حاول الانضمام أولاً
-                    # For private channels, direct check with get_chat_member might not work
-                    # without the user being explicitly added or clicking an invite link.
-                    # This part needs careful handling or relies on the user clicking the link.
-                    # For simplicity, we'll assume the link itself will guide them.
-                    true_sub_pending[user_id] = index
-                    break
-            except Exception as e:
-                # إذا حدث خطأ (مثل القناة غير موجودة أو البوت ليس مشرفًا)، اعتبر أن المستخدم غير مشترك
-                print(f"Error checking channel {link}: {e}")
-                true_sub_pending[user_id] = index
-                break
-        else:
-            return start_actual_logic(message) # إذا كان مشتركًا في الكل، انتقل إلى منطق البداية
+    # إذا كان المستخدم قد انضم بالفعل وتم التحقق من قبل، انتقل مباشرة إلى منطق البداية
+    if user and user.get("joined") == True and user_id not in true_sub_pending:
+        return send_start_welcome_message(user_id, name)
 
-    # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
-    step = true_sub_pending.get(user_id, 0)
+    # ابدأ أو استمر في عملية التحقق من الاشتراك الفعلي
+    check_true_subscription(user_id)
 
-    if step >= len(true_subscribe_links):
-        if user_id in true_sub_pending:
-            del true_sub_pending[user_id]
 
-        if not user:
-            users_col.insert_one({"user_id": user_id, "joined": True})
-        else:
-            users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
-
-        return start_actual_logic(message)
-
-    try:
-        current_channel = true_subscribe_links[step]
-        channel_username = current_channel.split("t.me/")[-1].replace("+", "")
-        member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
-
-        if member.status in ['member', 'administrator', 'creator']:
-            step += 1
-            true_sub_pending[user_id] = step
-
-            if step >= len(true_subscribe_links):
-                if user_id in true_sub_pending:
-                    del true_sub_pending[user_id]
-
-                if not user:
-                    users_col.insert_one({"user_id": user_id, "joined": True})
-                else:
-                    users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
-
-                return start_actual_logic(message)
-
-        # ✅ إرسال رسالة الاشتراك في القناة التالية
-        next_channel = true_subscribe_links[step]
-        text = (
-            "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
-            "- ثم اضغط /start ~\n"
-            "- قناة البوت 👾👇🏻\n"
-            f"📮: {next_channel}"
-        )
-        bot.send_message(
-            user_id,
-            text,
-            disable_web_page_preview=True,
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        return
-
-    except Exception as e:
-        print(f"Error in handle_start subscription check: {e}")
-        bot.send_message(
-            user_id,
-            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        return
-
-    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
-    if user_id in true_sub_pending:
-        del true_sub_pending[user_id]
-
-    start_actual_logic(message)
-
-def start_actual_logic(message):
+def send_start_welcome_message(user_id, first_name):
     """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك."""
-    user_id = message.from_user.id
-    first_name = message.from_user.first_name or "لا يوجد اسم"
-
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
@@ -395,6 +368,18 @@ def start_actual_logic(message):
 • عدد الأعضاء الكلي: {total_users}
 """)
         add_notified_user(user_id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
+def handle_check_true_subscription_callback(call):
+    """
+    معالج لـ callback_data "check_true_subscription"
+    التي تُرسل عند الضغط على زر "لقد اشتركت، اضغط هنا للمتابعة".
+    """
+    bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
+    user_id = call.from_user.id
+    check_true_subscription(user_id)
+
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
@@ -548,7 +533,7 @@ def set_upload_mode_v2_button(message):
     owner_upload_mode[message.from_user.id] = 'v2'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
 
-# معالج لزر تفعيل وضع صيانة فيديوهات2
+# معالج زر تفعيل وضع صيانة فيديوهات2
 @bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
 def enable_maintenance_button(message):
     global maintenance_mode
