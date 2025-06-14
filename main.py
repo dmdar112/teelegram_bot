@@ -14,7 +14,7 @@ from pymongo import MongoClient
 TOKEN = os.environ.get("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 OWNER_ID = 7054294622  # عدّل رقمك هنا
-BOT_USERNAME = "znjopabot"  # *** مهم جداً: استبدل هذا باسم المستخدم الخاص ببوتك (بدون @) ***
+BOT_USERNAME = "znjopabot"  # *** مهم جداً: تأكد أن هذا مطابق لاسم بوتك بدون @ ***
 
 maintenance_mode = False # هذا المتغير يتحكم بوضع صيانة فيديوهات2 فقط
 
@@ -291,28 +291,33 @@ def check_true_subscription(user_id, first_name):
             is_subscribed = False
 
             # محاولة التحقق من الاشتراك
-            if not channel_identifier.startswith('+'): # قناة عامة (@username)
+            # نتحقق فقط للقنوات العامة التي تبدأ بـ @ أو لا تحتوي على '+'
+            if not channel_identifier.startswith('+'): 
                 channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
                 member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
                 if member.status in ['member', 'administrator', 'creator']:
                     is_subscribed = True
-            else: # رابط دعوة خاص (يبدأ بـ +)
-                # لا يمكن التحقق تلقائيًا من الاشتراك في الروابط الخاصة بدون أن يكون البوت مشرفاً
-                # وحتى لو كان مشرفاً، فإن get_chat_member قد لا يعمل مع الروابط نفسها.
-                # لذا، سنفترض أنه غير مشترك ونطلب منه الاشتراك.
-                pass # سنعتبر أنه لم يشترك بعد ونطلب منه فتح الرابط
+            else: 
+                # للقنوات الخاصة (روابط الدعوة +)، نفترض أنه غير مشترك ونطلب منه الاشتراك
+                # لا يمكن التحقق التلقائي من روابط الدعوة بسهولة بدون أن يكون البوت مشرفاً فيها
+                # وحتى لو كان مشرفاً، فإن get_chat_member لا يعمل مع الروابط نفسها.
+                pass 
 
             if not is_subscribed:
                 # إذا لم يكن مشتركًا في القناة الحالية، اطلب منه الاشتراك
                 # وسنجعل /start رابطًا قابلاً للضغط
                 
                 # بناء النص مع /start كـ URL
-                start_link_text = f"[{telebot.formatting.escape_markdown('/start')}](tg://resolve?domain={BOT_USERNAME}&start=)"
+                start_button_text = telebot.formatting.escape_markdown('/start')
+                start_link_url = f"tg://resolve?domain={BOT_USERNAME}&start="
+                
+                # تهريب جميع الرموز الخاصة في النص العادي باستخدام escape_markdown
+                escaped_channel_link = telebot.formatting.escape_markdown(current_channel_link)
                 
                 text = (
-                    "🔔 لطفاً اشترك في القناة التالية:\n"
-                    f"📮: {current_channel_link}\n\n"
-                    f"⚠️ بعد الاشتراك، اضغط {start_link_text} للمتابعة."
+                    "🔔 لطفاً اشترك في القناة التالية\\:\n" # تهريب ":"
+                    f"📮\\: {escaped_channel_link}\n\n" # تهريب ":"
+                    f"⚠️ بعد الاشتراك، اضغط [{start_button_text}]({start_link_url}) للمتابعة\\." # تهريب "."
                 )
                 bot.send_message(user_id, text, disable_web_page_preview=True, parse_mode='MarkdownV2')
                 true_sub_pending[user_id] = step # حفظ الخطوة الحالية
@@ -327,12 +332,15 @@ def check_true_subscription(user_id, first_name):
             # في حالة الخطأ، نطلب من المستخدم المحاولة مرة أخرى عند /start
             
             # بناء النص مع /start كـ URL
-            start_link_text = f"[{telebot.formatting.escape_markdown('/start')}](tg://resolve?domain={BOT_USERNAME}&start=)"
+            start_button_text = telebot.formatting.escape_markdown('/start')
+            start_link_url = f"tg://resolve?domain={BOT_USERNAME}&start="
             
+            escaped_channel_link = telebot.formatting.escape_markdown(current_channel_link)
+
             text = (
-                f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
+                f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة\\: {escaped_channel_link}\\.\n" # تهريب ":" و "."
                 "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة إذا كانت عامة، ثم اضغط "
-                f"{start_link_text}."
+                f"[{start_button_text}]({start_link_url})\\." # تهريب "."
             )
             bot.send_message(user_id, text, disable_web_page_preview=True, parse_mode='MarkdownV2')
             true_sub_pending[user_id] = step # ابقَ على نفس الخطوة ليحاول مرة أخرى
@@ -371,19 +379,24 @@ def handle_start(message):
 def send_start_welcome_message(user_id, first_name):
     """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك في القنوات الإجبارية."""
     # تأكدنا بالفعل من أن المستخدم ليس المالك في handle_start
-    bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
-📂اختر قسم الفيديوهات من الأزرار بالأسفل!
+    bot.send_message(user_id, f"""🔞 مرحباً بك \\( {telebot.formatting.escape_markdown(first_name)} \\) 🏳‍🌈
+📂اختر قسم الفيديوهات من الأزرار بالأسفل\\!
 
-⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard())
+⚠️ المحتوى \\+18 \\- للكبار فقط\\!""", reply_markup=main_keyboard(), parse_mode='MarkdownV2') # تم إضافة parse_mode هنا أيضاً
 
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())
+        # تهريب النص لرسالة المالك أيضاً
+        escaped_first_name = telebot.formatting.escape_markdown(first_name)
+        escaped_user_id = telebot.formatting.escape_markdown(str(user_id))
+        escaped_total_users = telebot.formatting.escape_markdown(str(total_users))
+
         bot.send_message(OWNER_ID, f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
 
-• الاسم : {first_name}
-• الايدي : {user_id}
-• عدد الأعضاء الكلي: {total_users}
-""")
+• الاسم \\: {escaped_first_name}
+• الايدي \\: {escaped_user_id}
+• عدد الأعضاء الكلي\\: {escaped_total_users}
+""", parse_mode='MarkdownV2')
         add_notified_user(user_id)
 
 
@@ -399,14 +412,16 @@ def handle_v1(message):
     # قبل السماح بالوصول إلى فيديوهات1، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.")
+        # تم تهريب النص هنا أيضاً
+        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً\\. اضغط /start للمتابعة\\.", parse_mode='MarkdownV2')
         check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
         return
 
     if user_id in load_approved_users(approved_v1_col):
         send_videos(user_id, "v1")
     else:
-        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية:")
+        # تم تهريب النص هنا أيضاً
+        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1\\!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية\\:", parse_mode='MarkdownV2')
         data = pending_check.get(user_id)
         if data and data["category"] == "v1":
             send_required_links(user_id, "v1")
@@ -423,18 +438,21 @@ def handle_v2(message):
     # قبل السماح بالوصول إلى فيديوهات2، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.")
+        # تم تهريب النص هنا أيضاً
+        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً\\. اضغط /start للمتابعة\\.", parse_mode='MarkdownV2')
         check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
         return
 
     if maintenance_mode and user_id != OWNER_ID:
-        bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+        # تم تهريب النص هنا أيضاً
+        bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة\\. الرجاء المحاولة لاحقاً\\.", parse_mode='MarkdownV2')
         return
 
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
-        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
+        # تم تهريب النص هنا أيضاً
+        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2\\!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية\\:", parse_mode='MarkdownV2')
         data = pending_check.get(user_id)
         if data and data["category"] == "v2":
             send_required_links(user_id, "v2")
@@ -450,7 +468,8 @@ def send_required_links(chat_id, category):
 
     if step >= len(links):
         notify_owner_for_approval(chat_id, "مستخدم", category)
-        bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
+        # تم تهريب النص هنا أيضاً
+        bot.send_message(chat_id, "تم إرسال طلبك للموافقة\\. الرجاء الانتظار\\.", reply_markup=main_keyboard(), parse_mode='MarkdownV2')
         pending_check.pop(chat_id, None)
         return
 
@@ -459,15 +478,19 @@ def send_required_links(chat_id, category):
     # هنا نستخدم زر Inline برابط مباشر (هذا لقنوات فيديوهات1/2)
     markup = types.InlineKeyboardMarkup()
     channel_name = link.split('/')[-1]
+    # التأكد من تهريب channel_name في زر الـ Inline أيضاً
+    escaped_channel_name = telebot.formatting.escape_markdown(channel_name)
     if channel_name.startswith('+'):
-        channel_name = f"اشترك في القناة الخاصة {step + 1}"
+        # تهريب الرقم
+        escaped_step = telebot.formatting.escape_markdown(str(step + 1))
+        markup.add(types.InlineKeyboardButton(f"اشترك في القناة الخاصة {escaped_step}", url=link))
+    else:
+        markup.add(types.InlineKeyboardButton(f"اشترك في {escaped_channel_name}", url=link)) # تم تهريب هنا
     
-    markup.add(types.InlineKeyboardButton(f"اشترك في {channel_name}", url=link))
-    
-    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة .
-- قناة البوت 👾.👇🏻
-"""
-    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
+    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة \\.
+- قناة البوت 👾\\.👇🏻
+""" # تم تهريب "." و ":"
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True, parse_mode='MarkdownV2') # تم إضافة parse_mode هنا
 
     pending_check[chat_id] = {"category": category, "step": step}
 
@@ -486,14 +509,17 @@ def verify_subscription_callback(call):
         send_required_links(user_id, category)
     else:
         markup = types.InlineKeyboardMarkup()
+        # تهريب النص في زر الـ Inline أيضاً
         markup.add(
-            types.InlineKeyboardButton("🚸إذا كنت غير مشترك، اشترك الآن🚸", callback_data=f"resend_{category}")
+            types.InlineKeyboardButton(telebot.formatting.escape_markdown("🚸إذا كنت غير مشترك، اشترك الآن🚸"), callback_data=f"resend_{category}")
         )
+        # تهريب النص هنا أيضاً
         bot.send_message(
             user_id,
-            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات\\.\n"
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️",
-            reply_markup=markup
+            reply_markup=markup,
+            parse_mode='MarkdownV2' # تم إضافة parse_mode هنا
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
@@ -516,13 +542,18 @@ def notify_owner_for_approval(user_id, name, category):
         types.InlineKeyboardButton("✅ قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
         types.InlineKeyboardButton("❌ رفض المستخدم", callback_data=f"reject_{category}_{user_id}")
     )
+    # تهريب النص هنا أيضاً
+    escaped_name = telebot.formatting.escape_markdown(name)
+    escaped_user_id = telebot.formatting.escape_markdown(str(user_id))
+    escaped_category_last_char = telebot.formatting.escape_markdown(str(category[-1]))
+
     message_text = (
         f"📥 طلب انضمام جديد\n"
-        f"👤 الاسم: {name}\n"
-        f"🆔 الآيدي: {user_id}\n"
-        f"📁 الفئة: فيديوهات {category[-1]}"
+        f"👤 الاسم\\: {escaped_name}\n"
+        f"🆔 الآيدي\\: {escaped_user_id}\n"
+        f"📁 الفئة\\: فيديوهات {escaped_category_last_char}"
     )
-    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
+    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard, parse_mode='MarkdownV2') # تم إضافة parse_mode هنا
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_owner_response(call):
@@ -539,38 +570,44 @@ def handle_owner_response(call):
             add_approved_user(approved_v1_col, user_id)
         else:
             add_approved_user(approved_v2_col, user_id)
-        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
-        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id)
+        # تهريب النص هنا أيضاً
+        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة\\! يمكنك الآن استخدام البوت بكل المزايا\\.", parse_mode='MarkdownV2')
+        bot.edit_message_text("✅ تم قبول المستخدم\\.", call.message.chat.id, call.message.message_id, parse_mode='MarkdownV2') # تهريب النص هنا
     else:
-        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
+        # تهريب النص هنا أيضاً
+        bot.send_message(user_id, "❌ لم يتم قبولك\\. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى\\.", parse_mode='MarkdownV2')
+        bot.edit_message_text("❌ تم رفض المستخدم\\.", call.message.chat.id, call.message.message_id, parse_mode='MarkdownV2') # تهريب النص هنا
 
 
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v1_button(message):
     """تعيين وضع الرفع لقسم فيديوهات1."""
     owner_upload_mode[message.from_user.id] = 'v1'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
+    # تهريب النص هنا أيضاً
+    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1\\.", parse_mode='MarkdownV2')
 
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v2_button(message):
     """تعيين وضع الرفع لقسم فيديوهات2."""
     owner_upload_mode[message.from_user.id] = 'v2'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
+    # تهريب النص هنا أيضاً
+    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2\\.", parse_mode='MarkdownV2')
 
 # معالج زر تفعيل وضع صيانة فيديوهات2
 @bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
 def enable_maintenance_button(message):
     global maintenance_mode
     maintenance_mode = True
-    bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
+    # تهريب النص هنا أيضاً
+    bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2\\. البوت الآن في وضع الصيانة لهذا القسم\\.", parse_mode='MarkdownV2')
 
 # معالج لزر إيقاف وضع صيانة فيديوهات2
 @bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
 def disable_maintenance_button(message):
     global maintenance_mode
     maintenance_mode = False
-    bot.reply_to(message, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2. البوت عاد للعمل في هذا القسم.")
+    # تهريب النص هنا أيضاً
+    bot.reply_to(message, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2\\. البوت عاد للعمل في هذا القسم\\.", parse_mode='MarkdownV2')
 
 @bot.message_handler(content_types=['video'])
 def handle_video_upload(message):
@@ -583,10 +620,13 @@ def handle_video_upload(message):
 
     # رفع الفيديو إلى القناة الخاصة
     try:
+        # تهريب الكابتن هنا
+        caption_text = f"📥 فيديو جديد من المالك \\- قسم {telebot.formatting.escape_markdown(mode.upper())}"
         sent = bot.send_video(
             chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
             video=message.video.file_id,
-            caption=f"📥 فيديو جديد من المالك - قسم {mode.upper()}",
+            caption=caption_text,
+            parse_mode='MarkdownV2' # تم إضافة parse_mode هنا
         )
         # تخزين في قاعدة البيانات
         db[f"videos_{mode}"].insert_one({
@@ -594,16 +634,19 @@ def handle_video_upload(message):
             "message_id": sent.message_id
         })
 
-        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
+        # تهريب النص هنا أيضاً
+        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {telebot.formatting.escape_markdown(mode.upper())}\\.", parse_mode='MarkdownV2')
 
     except Exception as e:
         print(f"❌ خطأ في رفع الفيديو: {e}")
-        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+        # تهريب النص هنا أيضاً
+        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو\\.", parse_mode='MarkdownV2')
 
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
     """طلب صورة لرسالة جماعية."""
-    bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
+    # تهريب النص هنا أيضاً
+    bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة\\.", parse_mode='MarkdownV2')
     waiting_for_broadcast["photo"] = True
 
 @bot.message_handler(content_types=['photo'])
@@ -613,24 +656,30 @@ def receive_broadcast_photo(message):
         waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
         waiting_for_broadcast["photo"] = False
         waiting_for_broadcast["awaiting_text"] = True
-        bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
+        # تهريب النص هنا أيضاً
+        bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة\\.", parse_mode='MarkdownV2')
 
 @bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
 def receive_broadcast_text(message):
     """استقبال نص الرسالة الجماعية وإرسالها."""
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
-        text = message.text
+        text = message.text # النص الذي أرسله المالك
+        
+        # تهريب نص الرسالة الجماعية قبل إرساله للمستخدمين
+        escaped_text_for_broadcast = telebot.formatting.escape_markdown(text)
+        
         users = get_all_approved_users()
         sent_count = 0
         for user_id in users:
             try:
-                bot.send_photo(user_id, photo_id, caption=text)
+                bot.send_photo(user_id, photo_id, caption=escaped_text_for_broadcast, parse_mode='MarkdownV2') # تم إضافة parse_mode هنا
                 sent_count += 1
             except Exception as e:
                 print(f"Error sending broadcast to {user_id}: {e}")
                 pass
-        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
+        # تهريب النص هنا أيضاً
+        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم\\.", parse_mode='MarkdownV2')
         waiting_for_broadcast.clear()
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
