@@ -345,22 +345,24 @@ def handle_start(message):
         next_channel = true_subscribe_links[step]
         text = (
             "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
-            "- ثم اضغط /start ~\n"
+            # تم حذف سطر "ثم اضغط /start ~" من النص الأساسي
             "- قناة البوت 👾👇🏻\n"
             f"📮: {next_channel}"
         )
         
-        # *** التعديل هنا: إضافة زر /start إلى لوحة المفاتيح ***
-        markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-        markup.add(types.KeyboardButton("/start"))
+        # *** التعديل هنا: استخدام InlineKeyboardMarkup لزر /start ***
+        # إنشاء لوحة مفاتيح مضمنة (Inline Keyboard)
+        inline_markup = types.InlineKeyboardMarkup(row_width=1)
+        # إضافة زر "اضغط هنا للبدء" يرسل الأمر /start عند النقر
+        inline_markup.add(types.InlineKeyboardButton("👇🏻 اضغط هنا للبدء بعد الاشتراك 👇🏻", callback_data="start_after_sub"))
 
         bot.send_message(
             user_id,
             text,
             disable_web_page_preview=True,
-            reply_markup=markup # <--- استخدام لوحة المفاتيح الجديدة هنا
+            reply_markup=inline_markup # <--- استخدام لوحة المفاتيح المضمنة هنا
         )
-        return
+        return # يجب أن يكون هناك return هنا لمنع استكمال الكود قبل أن يتم الضغط على الزر
 
     except Exception as e:
         print(f"Error in handle_start subscription check: {e}")
@@ -376,6 +378,23 @@ def handle_start(message):
         del true_sub_pending[user_id]
 
     start_actual_logic(message)
+
+# *** معالج جديد لـ callback_data="start_after_sub" ***
+@bot.callback_query_handler(func=lambda call: call.data == "start_after_sub")
+def handle_start_after_sub(call):
+    bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...") # لإخفاء مؤشر التحميل
+    
+    # نقوم بتشغيل منطق handle_start مرة أخرى للمستخدم.
+    # الطريقة الأسهل والأكثر فعالية:
+    # نرسل /start له كرسالة، وهذا سيؤدي إلى استدعاء handle_start له مرة أخرى
+    # تليجرام سيعامل هذا كأنه أرسل /start يدويا.
+    bot.send_message(call.from_user.id, "/start", reply_markup=types.ReplyKeyboardRemove())
+    # يمكنك أيضا حذف الرسالة القديمة لمنع تكرار الأزرار
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        print(f"Error deleting message: {e}")
+
 
 def start_actual_logic(message):
     """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك."""
