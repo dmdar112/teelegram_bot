@@ -372,3 +372,295 @@ def handle_start(message):
         print(f"Error in handle_start subscription check: {e}")
         bot.send_message(
             user_id,
+            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+        return
+
+    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
+    if user_id in true_sub_pending:
+        del true_sub_pending[user_id]
+
+    start_actual_logic(message)
+
+# *** حذف هذا المعالج إذا لم تعد تستخدم الخيار السابق Inline button ***
+# @bot.callback_query_handler(func=lambda call: call.data == "start_after_sub")
+# def handle_start_after_sub(call):
+#     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
+#     bot.send_message(call.from_user.id, "/start", reply_markup=types.ReplyKeyboardRemove())
+#     try:
+#         bot.delete_message(call.message.chat.id, call.message.message_id)
+#     except Exception as e:
+#         print(f"Error deleting message: {e}")
+
+
+def start_actual_logic(message):
+    """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك."""
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "لا يوجد اسم"
+
+    if user_id == OWNER_ID:
+        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+        return
+
+    bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
+📂اختر قسم الفيديوهات من الأزرار بالأسفل!
+
+⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard())
+
+    if not has_notified(user_id):
+        total_users = len(get_all_approved_users())
+        bot.send_message(OWNER_ID, f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
+
+• الاسم : {first_name}
+• الايدي : {user_id}
+• عدد الأعضاء الكلي: {total_users}
+""")
+        add_notified_user(user_id)
+
+@bot.message_handler(func=lambda m: m.text == "فيديوهات1")
+def handle_v1(message):
+    """معالج لزر فيديوهات1."""
+    user_id = message.from_user.id
+
+    if user_id in load_approved_users(approved_v1_col):
+        send_videos(user_id, "v1")
+    else:
+        # ✅ عرض رسالة ترحيبية فقط إذا لم يكن مشتركًا بعد
+        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية:")
+
+        # نكمل الاشتراك من حيث توقف المستخدم
+        data = pending_check.get(user_id)
+        if data and data["category"] == "v1":
+            send_required_links(user_id, "v1")
+        else:
+            pending_check[user_id] = {"category": "v1", "step": 0}
+            send_required_links(user_id, "v1")
+
+@bot.message_handler(func=lambda m: m.text == "فيديوهات2")
+def handle_v2(message):
+    """معالج لزر فيديوهات2 مع التحقق من وضع الصيانة."""
+    user_id = message.from_user.id
+
+    if maintenance_mode and user_id != OWNER_ID:
+        bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+        return
+
+    if user_id in load_approved_users(approved_v2_col):
+        send_videos(user_id, "v2")
+    else:
+        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
+
+        data = pending_check.get(user_id)
+        if data and data["category"] == "v2":
+            send_required_links(user_id, "v2")
+        else:
+            pending_check[user_id] = {"category": "v2", "step": 0}
+            send_required_links(user_id, "v2")
+
+def send_required_links(chat_id, category):
+    """إرسال روابط الاشتراك المطلوبة."""
+    data = pending_check.get(chat_id, {"category": category, "step": 0})
+    step = data["step"]
+    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
+
+    if step >= len(links):
+        notify_owner_for_approval(chat_id, "مستخدم", category)
+        bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
+        pending_check.pop(chat_id, None)
+        return
+
+    link = links[step]
+
+    text = f"""- لطفاً اشترك بالقناة واستخدم البوت .
+- ثم اضغط / تحقق في الاسفل  ~
+- قناة البوت 👾.👇🏻
+📬:  {link}
+"""
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_{category}_{step}"))
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
+
+    pending_check[chat_id] = {"category": category, "step": step}
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
+def verify_subscription_callback(call):
+    """معالج للتحقق من الاشتراك عبر الأزرار."""
+    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+
+    user_id = call.from_user.id
+    _, category, step_str = call.data.split("_")
+    step = int(step_str) + 1
+    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
+
+    if step < len(links):
+        pending_check[user_id] = {"category": category, "step": step}
+        send_required_links(user_id, category)
+    else:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("🚸إذا كنت غير مشترك، اشترك الآن🚸", callback_data=f"resend_{category}")
+        )
+        bot.send_message(
+            user_id,
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
+            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️",
+            reply_markup=markup
+        )
+        notify_owner_for_approval(user_id, call.from_user.first_name, category)
+        pending_check.pop(user_id, None)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
+def resend_links(call):
+    """إعادة إرسال روابط الاشتراك عند طلب المستخدم."""
+    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+
+    user_id = call.from_user.id
+    category = call.data.split("_")[1]
+    pending_check[user_id] = {"category": category, "step": 0}
+    send_required_links(user_id, category)
+
+def notify_owner_for_approval(user_id, name, category):
+    """إرسال إشعار للمالك بطلب انضمام جديد."""
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton("✅ قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
+        types.InlineKeyboardButton("❌ رفض المستخدم", callback_data=f"reject_{category}_{user_id}")
+    )
+    message_text = (
+        f"📥 طلب انضمام جديد\n"
+        f"👤 الاسم: {name}\n"
+        f"🆔 الآيدي: {user_id}\n"
+        f"📁 الفئة: فيديوهات {category[-1]}"
+    )
+    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
+def handle_owner_response(call):
+    """معالج لاستجابة المالك (قبول أو رفض)."""
+    parts = call.data.split("_")
+    action, category, user_id = parts[0], parts[1], int(parts[2])
+
+    if call.from_user.id != OWNER_ID:
+        bot.answer_callback_query(call.id, "🚫 غير مصرح لك بالقيام بهذا الإجراء.")
+        return
+
+    if action == "approve":
+        if category == "v1":
+            add_approved_user(approved_v1_col, user_id)
+        else:
+            add_approved_user(approved_v2_col, user_id)
+        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
+        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id)
+    else:
+        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
+        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
+
+
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
+def set_upload_mode_v1_button(message):
+    """تعيين وضع الرفع لقسم فيديوهات1."""
+    owner_upload_mode[message.from_user.id] = 'v1'
+    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
+
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
+def set_upload_mode_v2_button(message):
+    """تعيين وضع الرفع لقسم فيديوهات2."""
+    owner_upload_mode[message.from_user.id] = 'v2'
+    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
+
+# معالج لزر تفعيل وضع صيانة فيديوهات2
+@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+def enable_maintenance_button(message):
+    global maintenance_mode
+    maintenance_mode = True
+    bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
+
+# معالج لزر إيقاف وضع صيانة فيديوهات2
+@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+def disable_maintenance_button(message):
+    global maintenance_mode
+    maintenance_mode = False
+    bot.reply_to(message, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2. البوت عاد للعمل في هذا القسم.")
+
+@bot.message_handler(content_types=['video'])
+def handle_video_upload(message):
+    """معالج لرفع الفيديوهات من قبل المالك."""
+    user_id = message.from_user.id
+    mode = owner_upload_mode.get(user_id)
+
+    if user_id != OWNER_ID or not mode:
+        return  # تجاهل أي فيديو من غير المالك أو إن لم يحدد القسم
+
+    # رفع الفيديو إلى القناة الخاصة
+    try:
+        sent = bot.send_video(
+            chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
+            video=message.video.file_id,
+            caption=f"📥 فيديو جديد من المالك - قسم {mode.upper()}",
+        )
+        # تخزين في قاعدة البيانات
+        db[f"videos_{mode}"].insert_one({
+            "chat_id": sent.chat.id,
+            "message_id": sent.message_id
+        })
+
+        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
+
+    except Exception as e:
+        print(f"❌ خطأ في رفع الفيديو: {e}")
+        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+
+@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
+def ask_broadcast_photo(message):
+    """طلب صورة لرسالة جماعية."""
+    bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
+    waiting_for_broadcast["photo"] = True
+
+@bot.message_handler(content_types=['photo'])
+def receive_broadcast_photo(message):
+    """استقبال الصورة للرسالة الجماعية."""
+    if waiting_for_broadcast.get("photo") and message.from_user.id == OWNER_ID:
+        waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
+        waiting_for_broadcast["photo"] = False
+        waiting_for_broadcast["awaiting_text"] = True
+        bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
+
+@bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
+def receive_broadcast_text(message):
+    """استقبال نص الرسالة الجماعية وإرسالها."""
+    if waiting_for_broadcast.get("awaiting_text"):
+        photo_id = waiting_for_broadcast.get("photo_file_id")
+        text = message.text
+        users = get_all_approved_users()
+        sent_count = 0
+        for user_id in users:
+            try:
+                bot.send_photo(user_id, photo_id, caption=text)
+                sent_count += 1
+            except Exception as e:
+                print(f"Error sending broadcast to {user_id}: {e}")
+                pass
+        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
+        waiting_for_broadcast.clear()
+
+# --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    """المسار الرئيسي للخادم الويب."""
+    return "Bot is running"
+
+def run():
+    """تشغيل خادم الويب."""
+    app.run(host='0.0.0.0', port=3000)
+
+def keep_alive():
+    """تشغيل الخادم في موضوع منفصل."""
+    t = Thread(target=run)
+    t.start()
+
+keep_alive()
+bot.infinity_polling()
