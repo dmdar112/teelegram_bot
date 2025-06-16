@@ -39,21 +39,22 @@ approved_v2_col = db["approved_v2"]
 notified_users_col = db["notified_users"]
 
 subscribe_links_v1 = [
-    "[https://t.me/+2L5KrXuCDUA5ZWIy](https://t.me/+2L5KrXuCDUA5ZWIy)",
-    "[https://t.me/+SPTrcs3tJqhlMDVi](https://t.me/+SPTrcs3tJqhlMDVi)",
-    "[https://t.me/+W2KuzsUu_zcyODIy](https://t.me/+W2KuzsUu_zcyODIy)",
-    "[https://t.me/+CFA6qHiV0zw1NjRk](https://t.me/+CFA6qHiV0zw1NjRk)",
+    "https://t.me/+2L5KrXuCDUA5ZWIy",
+    "https://t.me/+SPTrcs3tJqhlMDVi",
+    "https://t.me/+W2KuzsUu_zcyODIy",
+    "https://t.me/+CFA6qHiV0zw1NjRk",
 ]
 
 subscribe_links_v2 = [
-    "[https://t.me/R2M199](https://t.me/R2M199)",
-    "[https://t.me/SNOKER_VIP](https://t.me/SNOKER_VIP)",
+    "https://t.me/R2M199",
+    "https://t.me/SNOKER_VIP",
 ]
 
+# تأكد أن هذه القنوات عامة أو أن البوت مشرف فيها إذا كانت خاصة
 true_subscribe_links = [
-    "[https://t.me/BLACK_ROOT1](https://t.me/BLACK_ROOT1)",
-    "[https://t.me/SNOKER_VIP](https://t.me/SNOKER_VIP)",
-    "[https://t.me/R2M199](https://t.me/R2M199)"
+    "https://t.me/BLACK_ROOT1",
+    "https://t.me/SNOKER_VIP",
+    "https://t.me/R2M199"
 ]
 
 pending_check = {}
@@ -282,54 +283,64 @@ def handle_start(message):
 
     # ✅ تحقق فعلي من بقاء الاشتراك إن كان مسجل سابقًا في قاعدة البيانات
     if user and user.get("joined") == True:
+        # إذا كان المستخدم مسجلًا ومشتركًا سابقًا، نتحقق من بقاء اشتراكه
+        all_subscribed = True
         for index, link in enumerate(true_subscribe_links):
             try:
+                # استخراج اسم المستخدم للقناة من الرابط (للقنوات العامة)
                 channel_username = link.split("t.me/")[-1].replace("+", "")
-                # حاول الحصول على معلومات القناة باستخدام get_chat لتحديد ما إذا كانت عامة أم لا
-                chat_info = bot.get_chat(chat_id=f"@{channel_username}")
-                if chat_info.type == 'channel': # تأكد أنها قناة عامة
-                    member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
-                    if member.status not in ['member', 'administrator', 'creator']:
-                        true_sub_pending[user_id] = index
-                        break
-                elif chat_info.type == 'private': # إذا كانت قناة خاصة، حاول الانضمام أولاً
-                    # For private channels, direct check with get_chat_member might not work
-                    # without the user being explicitly added or clicking an invite link.
-                    # This part needs careful handling or relies on the user clicking the link.
-                    # For simplicity, we'll assume the link itself will guide them.
-                    true_sub_pending[user_id] = index
-                    break
+                
+                # استخدام get_chat_member للتحقق من العضوية
+                member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+                
+                if member.status not in ['member', 'administrator', 'creator']:
+                    all_subscribed = False
+                    true_sub_pending[user_id] = index # تحديد القناة التي لم يشترك بها
+                    break # توقف عند أول قناة غير مشترك بها
             except Exception as e:
-                # إذا حدث خطأ (مثل القناة غير موجودة أو البوت ليس مشرفًا)، اعتبر أن المستخدم غير مشترك
-                print(f"Error checking channel {link}: {e}")
-                true_sub_pending[user_id] = index
+                # في حالة وجود أي خطأ (القناة غير موجودة، البوت ليس مشرفًا، إلخ)
+                print(f"❌ خطأ في التحقق من القناة {link}: {e}")
+                all_subscribed = False
+                true_sub_pending[user_id] = index # تحديد القناة التي سببت الخطأ
                 break
+
+        if all_subscribed:
+            # إذا كان مشتركًا في جميع القنوات، انتقل إلى المنطق الرئيسي
+            return start_actual_logic(message)
         else:
-            return start_actual_logic(message) # إذا كان مشتركًا في الكل، انتقل إلى منطق البداية
+            # إذا لم يكن مشتركًا في كل القنوات، اطلب منه الاشتراك
+            # ننتقل إلى جزء الاشتراك في الأسفل
+            pass # نترك الكود يكمل للمنطق الذي يطلب الاشتراك
 
     # ⬇️ إذا لم يكن مشتركًا بكل القنوات، نظهر له القناة الحالية بالتسلسل
-    step = true_sub_pending.get(user_id, 0)
+    step = true_sub_pending.get(user_id, 0) # ابدأ من القناة التي لم يشترك بها، أو من البداية
 
+    # إذا كان قد اجتاز كل خطوات الاشتراك (لكن لم يسجل بعد في DB أو المشكلة كانت خطأ)
     if step >= len(true_subscribe_links):
         if user_id in true_sub_pending:
-            del true_sub_pending[user_id]
+            del true_sub_pending[user_id] # تنظيف قائمة الانتظار
 
+        # تحديث حالة المستخدم في قاعدة البيانات
         if not user:
             users_col.insert_one({"user_id": user_id, "joined": True})
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
 
-        return start_actual_logic(message)
+        return start_actual_logic(message) # انتقل إلى المنطق الرئيسي
 
     try:
-        current_channel = true_subscribe_links[step]
-        channel_username = current_channel.split("t.me/")[-1].replace("+", "")
+        current_channel_link = true_subscribe_links[step]
+        channel_username = current_channel_link.split("t.me/")[-1].replace("+", "")
+        
+        # تحقق من حالة العضوية في القناة الحالية
         member = bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
 
         if member.status in ['member', 'administrator', 'creator']:
+            # إذا كان مشتركًا، نتقدم للخطوة التالية
             step += 1
             true_sub_pending[user_id] = step
 
+            # إذا كان قد اشترك في جميع القنوات بعد هذه الخطوة
             if step >= len(true_subscribe_links):
                 if user_id in true_sub_pending:
                     del true_sub_pending[user_id]
@@ -339,62 +350,71 @@ def handle_start(message):
                 else:
                     users_col.update_one({"user_id": user_id}, {"$set": {"joined": True}})
 
-                return start_actual_logic(message)
+                return start_actual_logic(message) # انتقل إلى المنطق الرئيسي
 
-        # ✅ إرسال رسالة الاشتراك في القناة التالية
-        next_channel = true_subscribe_links[step]
+        # ✅ إرسال رسالة الاشتراك في القناة التالية (أو الحالية إذا لم يكن مشتركاً)
+        next_channel_to_subscribe = true_subscribe_links[step]
         
-        # *** التعديل هنا: دمج الرسالتين وجعل /start في سطر منفصل وبصيغة MarkdownV2 ***
-        # استخدام MarkdownV2 لجعل /start أمراً قابلاً للنقر بشكل صريح
-        # يجب الانتباه إلى الرموز الخاصة في MarkdownV2 مثل . - ! وغيرها
-        # هنا سنضع /start في سطر منفصل ونحدده كأمر
-        
-        # تهريب الرموز الخاصة في next_channel (مثل الشرطة السفلية)
-        escaped_next_channel = next_channel.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`") # أضف المزيد حسب الحاجة
-        
-        text_with_start_command = (
-            "🔔 لطفاً اشترك بالقناة واستخدم البوت\\.\n"
-            "\\- قناة البوت 👾👇🏻\n"
-            f"📮: {escaped_next_channel}\n\n" # استخدم النسخة المهربة
-            "الرجاء الضغط على الأمر أدناه للمتابعة:\n"
-            "`/start`" # وضع /start داخل ` ` لجعلها Code block
+        text = (
+            "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
+            "- قناة البوت 👾👇🏻\n"
+            f"📮: {next_channel_to_subscribe}"
         )
         
+        # *** العودة إلى استخدام Inline Button للتحقق ***
+        inline_markup = types.InlineKeyboardMarkup(row_width=1)
+        inline_markup.add(types.InlineKeyboardButton("👇🏻 اضغط هنا للبدء بعد الاشتراك 👇🏻", callback_data="start_after_sub"))
+
         bot.send_message(
             user_id,
-            text_with_start_command,
-            parse_mode="MarkdownV2", # مهم جداً لتفسير التنسيق
+            text,
             disable_web_page_preview=True,
-            reply_markup=types.ReplyKeyboardRemove() # تأكد من إزالة أي لوحة مفاتيح هنا
+            reply_markup=inline_markup # <--- استخدام لوحة المفاتيح المضمنة هنا
+        )
+        return # يجب أن يكون هناك return هنا لمنع استكمال الكود قبل أن يتم الضغط على الزر
+
+    except telebot.apihelper.ApiTelegramException as e:
+        # معالجة الأخطاء الخاصة بـ Telegram API
+        print(f"❌ Telegram API Error checking subscription for {user_id} in {current_channel_link}: {e}")
+        # رسالة خطأ للمستخدم أكثر وضوحًا
+        bot.send_message(
+            user_id,
+            f"⚠️ تعذر التحقق من الاشتراك\\. يرجى التأكد من أن البوت مشرف في القناة\n`{current_channel_link}`\n"
+            "أو أن هناك مشكلة مؤقتة في تليجرام\\. يرجى المحاولة لاحقاً\\.",
+            parse_mode="MarkdownV2",
+            reply_markup=types.ReplyKeyboardRemove()
         )
         return
-
     except Exception as e:
-        print(f"Error in handle_start subscription check: {e}")
+        # معالجة أي أخطاء أخرى غير متوقعة
+        print(f"❌ Unexpected Error in handle_start subscription check for {user_id}: {e}")
         bot.send_message(
             user_id,
-            f"⚠️ تعذر التحقق من الاشتراك\\. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
-            # ربما تحتاج لتهريب current_channel هنا أيضا إذا تم عرضها بنفس parse_mode
+            "⚠️ حدث خطأ غير متوقع أثناء التحقق من اشتراكك\\. يرجى المحاولة مرة أخرى لاحقاً\\.",
+            parse_mode="MarkdownV2",
             reply_markup=types.ReplyKeyboardRemove()
         )
         return
 
-    # ✅ تنظيف قائمة الانتظار إذا تم التحقق
+    # ✅ تنظيف قائمة الانتظار إذا تم التحقق (هذا الجزء قد لا يتم الوصول إليه إذا كان هناك return)
     if user_id in true_sub_pending:
         del true_sub_pending[user_id]
 
     start_actual_logic(message)
 
-
-# *** حذف هذا المعالج إذا لم تعد تستخدم الخيار السابق Inline button ***
-# @bot.callback_query_handler(func=lambda call: call.data == "start_after_sub")
-# def handle_start_after_sub(call):
-#     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
-#     bot.send_message(call.from_user.id, "/start", reply_markup=types.ReplyKeyboardRemove())
-#     try:
-#         bot.delete_message(call.message.chat.id, call.message.message_id)
-#     except Exception as e:
-#         print(f"Error deleting message: {e}")
+# *** إعادة هذا المعالج لـ callback_data="start_after_sub" ***
+@bot.callback_query_handler(func=lambda call: call.data == "start_after_sub")
+def handle_start_after_sub(call):
+    bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...") # لإخفاء مؤشر التحميل
+    
+    # نقوم بتشغيل منطق handle_start مرة أخرى للمستخدم.
+    # تليجرام سيعامل هذا كأنه أرسل /start يدويا.
+    bot.send_message(call.from_user.id, "/start", reply_markup=types.ReplyKeyboardRemove())
+    # يمكنك أيضا حذف الرسالة القديمة لمنع تكرار الأزرار
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        print(f"Error deleting message: {e}")
 
 
 def start_actual_logic(message):
@@ -475,22 +495,16 @@ def send_required_links(chat_id, category):
 
     link = links[step]
 
-    # تهريب الرموز الخاصة في next_channel (مثل الشرطة السفلية)
-    escaped_link = link.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`") # أضف المزيد حسب الحاجة
-    escaped_check_text = "👾 تحقق الانْ بعد الاشتراك 👾" # لا يوجد رموز خاصة تحتاج لتهريب هنا
-    
-    text = (
-        "\\- لطفاً اشترك بالقناة واستخدم البوت \\.\n"
-        "\\- ثم اضغط \\/ تحقق في الاسفل \\~\n" # تهريب /
-        "\\- قناة البوت 👾\\.👇🏻\n" # تهريب .
-        f"📬: {escaped_link}\n"
-    )
+    text = f"""- لطفاً اشترك بالقناة واستخدم البوت .
+- ثم اضغط / تحقق في الاسفل  ~
+- قناة البوت 👾.👇🏻
+📬:  {link}
+"""
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(escaped_check_text, callback_data=f"verify_{category}_{step}"))
-    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True, parse_mode="MarkdownV2") # أضف parse_mode هنا
-    
-    pending_check[chat_id] = {"category": category, "step": step}
+    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_{category}_{step}"))
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
+    pending_check[chat_id] = {"category": category, "step": step}
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
 def verify_subscription_callback(call):
@@ -512,10 +526,9 @@ def verify_subscription_callback(call):
         )
         bot.send_message(
             user_id,
-            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات\\.\n"
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️",
-            reply_markup=markup,
-            parse_mode="MarkdownV2" # أضف parse_mode هنا أيضًا
+            reply_markup=markup
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
@@ -538,19 +551,13 @@ def notify_owner_for_approval(user_id, name, category):
         types.InlineKeyboardButton("✅ قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
         types.InlineKeyboardButton("❌ رفض المستخدم", callback_data=f"reject_{category}_{user_id}")
     )
-    # تهريب الاسم والايدي في MarkdownV2 إذا كانت تحتوي على رموز خاصة
-    escaped_name = name.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
-    escaped_user_id = str(user_id).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
-    escaped_category = category[-1].replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
-
-
     message_text = (
         f"📥 طلب انضمام جديد\n"
-        f"👤 الاسم: {escaped_name}\n"
-        f"🆔 الآيدي: {escaped_user_id}\n"
-        f"📁 الفئة: فيديوهات {escaped_category}"
+        f"👤 الاسم: {name}\n"
+        f"🆔 الآيدي: {user_id}\n"
+        f"📁 الفئة: فيديوهات {category[-1]}"
     )
-    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard, parse_mode="MarkdownV2") # أضف parse_mode هنا
+    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_owner_response(call):
@@ -568,10 +575,10 @@ def handle_owner_response(call):
         else:
             add_approved_user(approved_v2_col, user_id)
         bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
-        bot.edit_message_text("✅ تم قبول المستخدم\\.", call.message.chat.id, call.message.message_id, parse_mode="MarkdownV2") # أضف parse_mode هنا
+        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id)
     else:
-        bot.send_message(user_id, "❌ لم يتم قبولك\\. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل \\/start مرة أخرى\\.", parse_mode="MarkdownV2") # أضف parse_mode هنا
-        bot.edit_message_text("❌ تم رفض المستخدم\\.", call.message.chat.id, call.message.message_id, parse_mode="MarkdownV2") # أضف parse_mode هنا
+        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
+        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
 
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
