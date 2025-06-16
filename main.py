@@ -354,7 +354,9 @@ def check_true_subscription(user_id, first_name):
         send_start_welcome_message(user_id, first_name)
     else:
         # إذا لم يكن مشتركًا في كل القنوات بعد، تأكد من إخفاء الكيبورد
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في جميع القنوات الإجبارية أولاً.", reply_markup=types.ReplyKeyboardRemove())
+        # هذه الرسالة لن تظهر لأننا نرسل رسالة "أهلاً بك..." في handle_start
+        # ولكن الكيبورد سيتم إخفاؤه.
+        # bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في جميع القنوات الإجبارية أولاً.", reply_markup=types.ReplyKeyboardRemove())
         user_data_db = users_col.find_one({"user_id": user_id})
         if user_data_db and user_data_db.get("joined", False):
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": False}})
@@ -371,15 +373,11 @@ def handle_start(message):
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
-    # تحقق من حالة الاشتراك الإجباري للمستخدم
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if user_data_db and user_data_db.get("joined", False):
-        # إذا كان مشتركًا مسبقًا، أظهر لوحة المفاتيح الرئيسية
-        send_start_welcome_message(user_id, first_name)
-    else:
-        # إذا لم يكن مشتركًا، قم بإخفاء لوحة المفاتيح وأبدأ عملية التحقق
-        bot.send_message(user_id, "أهلاً بك! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name)
+    # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
+    # دائمًا، حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
+    # مع إخفاء الكيبورد في البداية حتى يتم إكمال الاشتراكات.
+    bot.send_message(user_id, "أهلاً بك! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
+    check_true_subscription(user_id, first_name)
 
 
 def send_start_welcome_message(user_id, first_name):
