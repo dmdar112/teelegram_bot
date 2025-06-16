@@ -39,21 +39,21 @@ approved_v2_col = db["approved_v2"]
 notified_users_col = db["notified_users"]
 
 subscribe_links_v1 = [
-    "https://t.me/+2L5KrXuCDUA5ZWIy",
-    "https://t.me/+SPTrcs3tJqhlMDVi",
-    "https://t.me/+W2KuzsUu_zcyODIy",
-    "https://t.me/+CFA6qHiV0zw1NjRk",
+    "[https://t.me/+2L5KrXuCDUA5ZWIy](https://t.me/+2L5KrXuCDUA5ZWIy)",
+    "[https://t.me/+SPTrcs3tJqhlMDVi](https://t.me/+SPTrcs3tJqhlMDVi)",
+    "[https://t.me/+W2KuzsUu_zcyODIy](https://t.me/+W2KuzsUu_zcyODIy)",
+    "[https://t.me/+CFA6qHiV0zw1NjRk](https://t.me/+CFA6qHiV0zw1NjRk)",
 ]
 
 subscribe_links_v2 = [
-    "https://t.me/R2M199",
-    "https://t.me/SNOKER_VIP",
+    "[https://t.me/R2M199](https://t.me/R2M199)",
+    "[https://t.me/SNOKER_VIP](https://t.me/SNOKER_VIP)",
 ]
 
 true_subscribe_links = [
-    "https://t.me/BLACK_ROOT1",
-    "https://t.me/SNOKER_VIP",
-    "https://t.me/R2M199"
+    "[https://t.me/BLACK_ROOT1](https://t.me/BLACK_ROOT1)",
+    "[https://t.me/SNOKER_VIP](https://t.me/SNOKER_VIP)",
+    "[https://t.me/R2M199](https://t.me/R2M199)"
 ]
 
 pending_check = {}
@@ -344,35 +344,37 @@ def handle_start(message):
         # ✅ إرسال رسالة الاشتراك في القناة التالية
         next_channel = true_subscribe_links[step]
         
-        # *** التعديل هنا: إرسال رسالتين منفصلتين ***
-        # الرسالة الأولى: رابط القناة
-        channel_text = (
-            "🔔 لطفاً اشترك بالقناة واستخدم البوت.\n"
-            "- قناة البوت 👾👇🏻\n"
-            f"📮: {next_channel}"
+        # *** التعديل هنا: دمج الرسالتين وجعل /start في سطر منفصل وبصيغة MarkdownV2 ***
+        # استخدام MarkdownV2 لجعل /start أمراً قابلاً للنقر بشكل صريح
+        # يجب الانتباه إلى الرموز الخاصة في MarkdownV2 مثل . - ! وغيرها
+        # هنا سنضع /start في سطر منفصل ونحدده كأمر
+        
+        # تهريب الرموز الخاصة في next_channel (مثل الشرطة السفلية)
+        escaped_next_channel = next_channel.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`") # أضف المزيد حسب الحاجة
+        
+        text_with_start_command = (
+            "🔔 لطفاً اشترك بالقناة واستخدم البوت\\.\n"
+            "\\- قناة البوت 👾👇🏻\n"
+            f"📮: {escaped_next_channel}\n\n" # استخدم النسخة المهربة
+            "الرجاء الضغط على الأمر أدناه للمتابعة:\n"
+            "`/start`" # وضع /start داخل ` ` لجعلها Code block
         )
+        
         bot.send_message(
             user_id,
-            channel_text,
+            text_with_start_command,
+            parse_mode="MarkdownV2", # مهم جداً لتفسير التنسيق
             disable_web_page_preview=True,
             reply_markup=types.ReplyKeyboardRemove() # تأكد من إزالة أي لوحة مفاتيح هنا
         )
-        
-        time.sleep(0.5) # فاصل زمني قصير لضمان وصول الرسائل بالترتيب
-        
-        # الرسالة الثانية: أمر /start وحده لجعله قابلاً للنقر
-        bot.send_message(
-            user_id,
-            "/start",
-            reply_markup=types.ReplyKeyboardRemove() # تأكد من عدم وجود أزرار هنا أيضًا
-        )
-        return # يجب أن يكون هناك return هنا لمنع استكمال الكود قبل أن يتم الضغط على /start
+        return
 
     except Exception as e:
         print(f"Error in handle_start subscription check: {e}")
         bot.send_message(
             user_id,
-            f"⚠️ تعذر التحقق من الاشتراك. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
+            f"⚠️ تعذر التحقق من الاشتراك\\. تأكد أن البوت مشرف في القناة:\n\n{current_channel}",
+            # ربما تحتاج لتهريب current_channel هنا أيضا إذا تم عرضها بنفس parse_mode
             reply_markup=types.ReplyKeyboardRemove()
         )
         return
@@ -382,6 +384,7 @@ def handle_start(message):
         del true_sub_pending[user_id]
 
     start_actual_logic(message)
+
 
 # *** حذف هذا المعالج إذا لم تعد تستخدم الخيار السابق Inline button ***
 # @bot.callback_query_handler(func=lambda call: call.data == "start_after_sub")
@@ -472,16 +475,22 @@ def send_required_links(chat_id, category):
 
     link = links[step]
 
-    text = f"""- لطفاً اشترك بالقناة واستخدم البوت .
-- ثم اضغط / تحقق في الاسفل  ~
-- قناة البوت 👾.👇🏻
-📬:  {link}
-"""
+    # تهريب الرموز الخاصة في next_channel (مثل الشرطة السفلية)
+    escaped_link = link.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`") # أضف المزيد حسب الحاجة
+    escaped_check_text = "👾 تحقق الانْ بعد الاشتراك 👾" # لا يوجد رموز خاصة تحتاج لتهريب هنا
+    
+    text = (
+        "\\- لطفاً اشترك بالقناة واستخدم البوت \\.\n"
+        "\\- ثم اضغط \\/ تحقق في الاسفل \\~\n" # تهريب /
+        "\\- قناة البوت 👾\\.👇🏻\n" # تهريب .
+        f"📬: {escaped_link}\n"
+    )
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_{category}_{step}"))
-    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
-
+    markup.add(types.InlineKeyboardButton(escaped_check_text, callback_data=f"verify_{category}_{step}"))
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True, parse_mode="MarkdownV2") # أضف parse_mode هنا
+    
     pending_check[chat_id] = {"category": category, "step": step}
+
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
 def verify_subscription_callback(call):
@@ -503,9 +512,10 @@ def verify_subscription_callback(call):
         )
         bot.send_message(
             user_id,
-            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات\\.\n"
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️",
-            reply_markup=markup
+            reply_markup=markup,
+            parse_mode="MarkdownV2" # أضف parse_mode هنا أيضًا
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category)
         pending_check.pop(user_id, None)
@@ -528,13 +538,19 @@ def notify_owner_for_approval(user_id, name, category):
         types.InlineKeyboardButton("✅ قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
         types.InlineKeyboardButton("❌ رفض المستخدم", callback_data=f"reject_{category}_{user_id}")
     )
+    # تهريب الاسم والايدي في MarkdownV2 إذا كانت تحتوي على رموز خاصة
+    escaped_name = name.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+    escaped_user_id = str(user_id).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+    escaped_category = category[-1].replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+
+
     message_text = (
         f"📥 طلب انضمام جديد\n"
-        f"👤 الاسم: {name}\n"
-        f"🆔 الآيدي: {user_id}\n"
-        f"📁 الفئة: فيديوهات {category[-1]}"
+        f"👤 الاسم: {escaped_name}\n"
+        f"🆔 الآيدي: {escaped_user_id}\n"
+        f"📁 الفئة: فيديوهات {escaped_category}"
     )
-    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
+    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard, parse_mode="MarkdownV2") # أضف parse_mode هنا
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_owner_response(call):
@@ -552,10 +568,10 @@ def handle_owner_response(call):
         else:
             add_approved_user(approved_v2_col, user_id)
         bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
-        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text("✅ تم قبول المستخدم\\.", call.message.chat.id, call.message.message_id, parse_mode="MarkdownV2") # أضف parse_mode هنا
     else:
-        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
+        bot.send_message(user_id, "❌ لم يتم قبولك\\. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل \\/start مرة أخرى\\.", parse_mode="MarkdownV2") # أضف parse_mode هنا
+        bot.edit_message_text("❌ تم رفض المستخدم\\.", call.message.chat.id, call.message.message_id, parse_mode="MarkdownV2") # أضف parse_mode هنا
 
 
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
