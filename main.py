@@ -292,10 +292,6 @@ def check_true_subscription(user_id, first_name):
         try:
             channel_identifier = current_channel_link.split("t.me/")[-1]
             
-            # محاولة الحصول على معلومات القناة لمعرفة نوعها (عامة أم خاصة)
-            # إذا كانت القناة خاصة، فإن bot.get_chat_member قد لا يعمل
-            # إلا إذا كان البوت بالفعل مشرفاً في القناة
-            
             is_subscribed = False
             # في حال كانت القناة عامة (@username)
             if not channel_identifier.startswith('+'):
@@ -332,7 +328,7 @@ def check_true_subscription(user_id, first_name):
             )
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
-            bot.send_message(user_id, text, disable_web_page_preview=True, reply_reply_markup=markup)
+            bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
             return # توقف هنا
 
     # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
@@ -693,16 +689,20 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        users = get_all_approved_users() # هذه الدالة تعطي المستخدمين الموافق عليهم (فيديوهات1/2)
-                                        # قد تحتاج لتغييرها لتشمل كل من اجتاز الاشتراك الإجباري
-                                        # أو إرسال الرسالة لـ users_col
+        
+        # للحصول على جميع المستخدمين الذين اجتازوا الاشتراك الإجباري،
+        # نستخدم users_col ونبحث عن joined_true_subs: True
+        users_to_notify = users_col.find({"joined_true_subs": True})
+        
         sent_count = 0
-        for user_id in users:
+        for user_data in users_to_notify:
+            user_id = user_data["user_id"]
             try:
                 bot.send_photo(user_id, photo_id, caption=text)
                 sent_count += 1
             except Exception as e:
                 print(f"Error sending broadcast to {user_id}: {e}")
+                # هنا يمكنك إضافة منطق لإزالة المستخدمين غير النشطين أو المحظورين
                 pass
         bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
         waiting_for_broadcast.clear()
@@ -717,7 +717,10 @@ def home():
 
 def run():
     """تشغيل خادم الويب."""
-    app.run(host='0.0.0.0', port=3000)
+    # هذا هو التعديل المحتمل للخطأ على Render
+    # Render يعين منفذًا عشوائيًا عبر متغير البيئة PORT
+    port = int(os.environ.get("PORT", 3000)) 
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     """تشغيل الخادم في موضوع منفصل."""
