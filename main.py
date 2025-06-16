@@ -363,7 +363,7 @@ def handle_start(message):
         # الرسالة الثانية: أمر /start وحده لجعله قابلاً للنقر
         bot.send_message(
             user_id,
-            "‼️| اشترك ثم ارسل /start",
+            "/start",
             reply_markup=types.ReplyKeyboardRemove() # تأكد من عدم وجود أزرار هنا أيضًا
         )
         return # يجب أن يكون هناك return هنا لمنع استكمال الكود قبل أن يتم الضغط على /start
