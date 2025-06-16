@@ -31,9 +31,9 @@ MONGODB_URI = os.environ.get("MONGODB_URI")
 client = MongoClient(MONGODB_URI)
 db = client["telegram_bot_db"]
 
-users_col = db["users"]
-
 # مجموعات (Collections)
+users_col = db["users"] # ستخزن هنا بيانات المستخدمين وحالة اشتراكهم الإجباري
+
 approved_v1_col = db["approved_v1"]
 approved_v2_col = db["approved_v2"]
 notified_users_col = db["notified_users"]
@@ -285,7 +285,9 @@ def check_true_subscription(user_id, first_name):
     if step >= len(true_subscribe_links):
         step = 0 # أعد تعيينها لتبدأ من البداية إذا كان قد أكملها
 
-    for index in range(step, len(true_subscribe_links)):
+    all_channels_subscribed = True # علم للتحقق مما إذا كان المستخدم مشتركًا في كل القنوات
+    
+    for index in range(len(true_subscribe_links)): # التحقق من كل القنوات دائمًا
         current_channel_link = true_subscribe_links[index]
         try:
             channel_identifier = current_channel_link.split("t.me/")[-1]
@@ -294,28 +296,22 @@ def check_true_subscription(user_id, first_name):
             # إذا كانت القناة خاصة، فإن bot.get_chat_member قد لا يعمل
             # إلا إذا كان البوت بالفعل مشرفاً في القناة
             
+            is_subscribed = False
             # في حال كانت القناة عامة (@username)
             if not channel_identifier.startswith('+'):
                 channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
                 member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
-                if member.status not in ['member', 'administrator', 'creator']:
-                    # إذا لم يكن مشتركًا في القناة الحالية
-                    true_sub_pending[user_id] = index # احفظ الخطوة التي توقف عندها
-                    text = (
-                        "🔔 لطفاً اشترك في القناة التالية واضغط على الزر أدناه للمتابعة:\n"
-                        f"📮: {current_channel_link}"
-                    )
-                    markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
-                    bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                    return # توقف هنا وانتظر تفاعل المستخدم
+                if member.status in ['member', 'administrator', 'creator']:
+                    is_subscribed = True
             else: # رابط دعوة خاص (يبدأ بـ +)
-                # بالنسبة للروابط الخاصة، لا يمكن التحقق من الاشتراك بسهولة باستخدام get_chat_member
-                # إلا إذا كان البوت قد تمت إضافته للقناة كإداري
-                # أفضل طريقة هي تقديم الرابط وتوقع أن المستخدم سيضغط عليه ثم يعود ليتحقق
-                # لتجنب التعقيد، سنعتبر أن المستخدم يجب أن يضغط على الرابط ثم يعود للتحقق
-                # وسنطلب منه دائمًا التحقق عبر الزر
-                true_sub_pending[user_id] = index # احفظ الخطوة
+                # للروابط الخاصة، لا يمكن التحقق التلقائي بدون أن يكون البوت مشرفًا
+                # الأفضل هنا هو مطالبة المستخدم بالضغط على الرابط ثم التحقق يدوياً
+                # لذا، سنعتبر أنه لم يشترك حتى يضغط على الزر
+                pass # سنترك is_subscribed كـ False وندفع المستخدم للضغط على الزر
+
+            if not is_subscribed:
+                all_channels_subscribed = False # المستخدم ليس مشتركًا في كل القنوات
+                true_sub_pending[user_id] = index # احفظ الخطوة التي توقف عندها
                 text = (
                     "🔔 لطفاً اشترك في القناة التالية واضغط على الزر أدناه للمتابعة:\n"
                     f"📮: {current_channel_link}"
@@ -325,12 +321,10 @@ def check_true_subscription(user_id, first_name):
                 bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
                 return # توقف هنا وانتظر تفاعل المستخدم
             
-            # إذا كان مشتركًا أو تم تجاوز فحص القناة الخاصة بنجاح، استمر في الحلقة
-            true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
-
         except Exception as e:
             # يمكن أن يحدث خطأ إذا كانت القناة غير موجودة، أو البوت ليس مشرفًا، أو مشكلة في API
             print(f"❌ Error checking channel {current_channel_link} for user {user_id}: {e}")
+            all_channels_subscribed = False # حدث خطأ، لذا لا يمكننا اعتبار المستخدم مشتركًا
             true_sub_pending[user_id] = index # ابقَ على نفس الخطوة ليحاول مرة أخرى
             text = (
                 f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
@@ -338,23 +332,30 @@ def check_true_subscription(user_id, first_name):
             )
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
-            bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
+            bot.send_message(user_id, text, disable_web_page_preview=True, reply_reply_markup=markup)
             return # توقف هنا
 
     # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
-    if user_id in true_sub_pending:
-        del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
+    if all_channels_subscribed:
+        if user_id in true_sub_pending:
+            del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
 
-    # تحديث حالة الاشتراك في قاعدة البيانات
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if not user_data_db:
-        users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
+        # تحديث حالة الاشتراك في قاعدة البيانات
+        users_col.update_one(
+            {"user_id": user_id},
+            {"$set": {"joined_true_subs": True, "first_name": first_name}},
+            upsert=True
+        )
+        
+        # استدعاء المنطق الفعلي بعد التحقق
+        send_start_welcome_message(user_id, first_name)
     else:
-        users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
+        # إذا لم يكن مشتركًا في كل القنوات بعد التحقق، أعد توجيهه للخطوة الأولى
+        true_sub_pending[user_id] = 0
+        check_true_subscription(user_id, first_name)
 
-    # استدعاء المنطق الفعلي بعد التحقق
-    send_start_welcome_message(user_id, first_name)
 
+---
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -368,7 +369,7 @@ def handle_start(message):
         return
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
-    # حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
+    # هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
     check_true_subscription(user_id, first_name)
 
 
@@ -391,6 +392,8 @@ def send_start_welcome_message(user_id, first_name):
         add_notified_user(user_id)
 
 
+---
+
 @bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
 def handle_check_true_subscription_callback(call):
     """
@@ -400,8 +403,71 @@ def handle_check_true_subscription_callback(call):
     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
     user_id = call.from_user.id
     first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
-    check_true_subscription(user_id, first_name)
+    check_true_subscription(user_id, first_name) # أعد التحقق من جميع القنوات الإجبارية
 
+
+---
+
+def check_user_true_subscription_status(user_id, first_name):
+    """
+    يقوم بالتحقق مما إذا كان المستخدم لا يزال مشتركًا في جميع قنوات الاشتراك الإجباري الحقيقي.
+    """
+    user_data_db = users_col.find_one({"user_id": user_id})
+    if not user_data_db or not user_data_db.get("joined_true_subs", False):
+        # لم يكن مشتركًا أبدًا أو فقد حالة الاشتراك، أعد توجيهه
+        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=main_keyboard())
+        check_true_subscription(user_id, first_name)
+        return False
+
+    # تحقق من كل قناة إجبارية
+    for channel_link in true_subscribe_links:
+        try:
+            channel_identifier = channel_link.split("t.me/")[-1]
+            is_subscribed = False
+
+            if not channel_identifier.startswith('+'): # قناة عامة
+                channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
+                member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
+                if member.status in ['member', 'administrator', 'creator']:
+                    is_subscribed = True
+            else: # رابط دعوة خاص، نفترض أنه مشترك إذا كان قد اجتاز التحقق الأولي
+                  # لكن لجعلها قوية، يجب أن يكون البوت مشرفًا في القناة الخاصة ليتحقق
+                  # أو نعتمد على أن المستخدم يجب أن يعيد الضغط على زر التحقق
+                # في هذه الحالة، إذا كان رابط خاص ولم يكن البوت مشرفًا، لا يمكننا التحقق بشكل موثوق
+                # لذا، كحل بديل، إذا لم يكن البوت مشرفًا، سنطلب من المستخدم إعادة التحقق.
+                # ولكن لغرض هذا المثال، سنفترض أن البوت يستطيع التحقق.
+                # الأفضل هنا: ألا تعتمد على روابط الدعوة الخاصة للتحقق الإجباري
+                pass # سنتركها كـ False ونجبر المستخدم على إعادة الاشتراك عبر check_true_subscription
+            
+            if not is_subscribed:
+                # إذا لم يكن مشتركًا في أي قناة، قم بتحديث حالته في قاعدة البيانات وأعد توجيهه
+                users_col.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"joined_true_subs": False}}
+                )
+                bot.send_message(user_id, "⚠️ يبدو أنك ألغيت اشتراكك في إحدى القنوات الإجبارية. الرجاء إعادة الاشتراك والضغط على /start للمتابعة.", reply_markup=main_keyboard())
+                check_true_subscription(user_id, first_name)
+                return False
+        except Exception as e:
+            print(f"Error checking true subscription for user {user_id} in channel {channel_link}: {e}")
+            # في حال وجود خطأ (القناة غير موجودة، البوت ليس مشرفًا، إلخ)، اعتبر أنه غير مشترك
+            users_col.update_one(
+                {"user_id": user_id},
+                {"$set": {"joined_true_subs": False}}
+            )
+            bot.send_message(user_id, "⚠️ حدث خطأ أثناء التحقق من اشتراكك في القنوات الإجبارية. الرجاء الضغط على /start للمتابعة.", reply_markup=main_keyboard())
+            check_true_subscription(user_id, first_name)
+            return False
+            
+    # إذا وصل إلى هنا، فالمستخدم مشترك في جميع القنوات الإجبارية
+    users_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"joined_true_subs": True}}
+    )
+    return True
+
+
+---
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
@@ -409,13 +475,9 @@ def handle_v1(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # قبل السماح بالوصول إلى فيديوهات1، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
-    # هنا يجب أن نتحقق من حالة "joined: True" في قاعدة البيانات بدلاً من true_sub_pending
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if not user_data_db or not user_data_db.get("joined", False):
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.")
-        check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
-        return
+    # التحقق من الاشتراك الإجباري أولاً
+    if not check_user_true_subscription_status(user_id, first_name):
+        return # إذا لم يكن مشتركًا أو حدث خطأ، الدالة check_user_true_subscription_status ستتعامل معه
 
     if user_id in load_approved_users(approved_v1_col):
         send_videos(user_id, "v1")
@@ -434,12 +496,9 @@ def handle_v2(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # قبل السماح بالوصول إلى فيديوهات2، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if not user_data_db or not user_data_db.get("joined", False):
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.")
-        check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
-        return
+    # التحقق من الاشتراك الإجباري أولاً
+    if not check_user_true_subscription_status(user_id, first_name):
+        return # إذا لم يكن مشتركًا أو حدث خطأ، الدالة check_user_true_subscription_status ستتعامل معه
 
     if maintenance_mode and user_id != OWNER_ID:
         bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
@@ -634,7 +693,9 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        users = get_all_approved_users()
+        users = get_all_approved_users() # هذه الدالة تعطي المستخدمين الموافق عليهم (فيديوهات1/2)
+                                        # قد تحتاج لتغييرها لتشمل كل من اجتاز الاشتراك الإجباري
+                                        # أو إرسال الرسالة لـ users_col
         sent_count = 0
         for user_id in users:
             try:
