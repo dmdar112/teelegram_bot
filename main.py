@@ -372,14 +372,15 @@ def handle_start(message):
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
     # دائمًا، حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
-    # مع إخفاء الكيبورد في البداية حتى يتم إكمال الاشتراكات.
     
     # تحقق من الاشتراك الإجباري
     is_subscribed = check_true_subscription(user_id, first_name)
 
     # إذا كان المستخدم غير مشترك في جميع القنوات الإجبارية، أخفِ لوحة المفاتيح
     if not is_subscribed:
-        bot.send_message(user_id, "يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
+        # لا نرسل رسالة هنا، فقط نخفي لوحة المفاتيح
+        bot.send_message(user_id, "...", reply_markup=types.ReplyKeyboardRemove())
+        bot.delete_message(chat_id=message.chat.id, message_id=message.message_id + 1) # لحذف الرسالة "..."
     # إذا كان مشتركاً بالفعل، أرسل رسالة الترحيب مع لوحة المفاتيح الرئيسية
     else:
         send_start_welcome_message(user_id, first_name)
