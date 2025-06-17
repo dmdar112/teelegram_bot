@@ -700,7 +700,17 @@ def manage_all_subscription_channels_menu(message):
         types.InlineKeyboardButton("اشتراك حقيقي إجباري", callback_data="manage_true_sub_channels"),
         types.InlineKeyboardButton("اشتراك وهمي (فيديوهات 1 و 2)", callback_data="manage_fake_sub_channels")
     )
-    bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
+    # استخدام edit_message_text إذا كانت الرسالة موجودة، وإلا send_message
+    if message.content_type == 'text' and message.text == "إدارة قنوات الاشتراك": # هذا يعني أن المالك ضغط على الزر النصي
+         bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
+    else: # هذا يعني أنها استدعيت من callback_query
+        try:
+            bot.edit_message_text("اختر نوع قنوات الاشتراك التي تريد إدارتها:", chat_id=message.chat.id, message_id=message.message_id, reply_markup=markup)
+        except Exception as e:
+            # في حال كانت الرسالة قديمة جداً ولا يمكن تعديلها، أرسل رسالة جديدة
+            print(f"Error editing message: {e}. Sending new message instead.")
+            bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
+
 
 @bot.callback_query_handler(func=lambda call: call.data == "manage_true_sub_channels")
 def manage_true_sub_channels(call):
@@ -712,7 +722,7 @@ def manage_true_sub_channels(call):
         types.InlineKeyboardButton("حذف قناة", callback_data="delete_channel_true"),
         types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
     )
-    markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management")) # تم تعديل النص
+    markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
     bot.edit_message_text("أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
 
@@ -741,7 +751,7 @@ def manage_fake_sub_channels(call):
     )
 
     # زر العودة
-    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management")) # تم تعديل النص
+    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
 
     bot.edit_message_text(
         "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:",
@@ -754,8 +764,19 @@ def manage_fake_sub_channels(call):
 def back_to_main_channel_management(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
-    # هذا هو التعديل: استدعاء دالة manage_all_subscription_channels_menu لإعادة عرض قائمة أقسام الاشتراك
-    manage_all_subscription_channels_menu(call.message)
+    
+    # حذف الرسالة الحالية
+    try:
+        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+    except Exception as e:
+        print(f"Error deleting message: {e}")
+        # إذا فشل الحذف، فلا تمنع استمرار العملية
+
+    # استدعاء manage_all_subscription_channels_menu ولكن بـ message جديد (كما لو ضغط على الزر النصي)
+    # لضمان عدم وجود مشاكل في تعديل الرسالة، نرسل رسالة جديدة بالكامل
+    # طريقة بديلة: يمكنك إنشاء كائن رسالة وهمي لتمريره للدالة
+    dummy_message = types.Message(message_id=0, from_user=call.from_user, date=int(time.time()), chat=call.message.chat, content_type='text', options={'text': 'إدارة قنوات الاشتراك'})
+    manage_all_subscription_channels_menu(dummy_message)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("add_channel_", "delete_channel_", "view_channels_")))
