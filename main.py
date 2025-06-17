@@ -693,23 +693,15 @@ def receive_broadcast_text(message):
 
 @bot.message_handler(func=lambda m: m.text == "إدارة قنوات الاشتراك" and m.from_user.id == OWNER_ID)
 def manage_all_subscription_channels_menu(message):
-    """يعرض القائمة الرئيسية لإدارة قنوات الاشتراك."""
+    """يعرض القائمة الرئيسية لإدارة قنوات الاشتراك (الاشتراك الإجباري والوهمي)."""
     user_id = message.from_user.id
     markup = types.InlineKeyboardMarkup()
     markup.add(
         types.InlineKeyboardButton("اشتراك حقيقي إجباري", callback_data="manage_true_sub_channels"),
         types.InlineKeyboardButton("اشتراك وهمي (فيديوهات 1 و 2)", callback_data="manage_fake_sub_channels")
     )
-    # استخدام edit_message_text إذا كانت الرسالة موجودة، وإلا send_message
-    if message.content_type == 'text' and message.text == "إدارة قنوات الاشتراك": # هذا يعني أن المالك ضغط على الزر النصي
-         bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
-    else: # هذا يعني أنها استدعيت من callback_query
-        try:
-            bot.edit_message_text("اختر نوع قنوات الاشتراك التي تريد إدارتها:", chat_id=message.chat.id, message_id=message.message_id, reply_markup=markup)
-        except Exception as e:
-            # في حال كانت الرسالة قديمة جداً ولا يمكن تعديلها، أرسل رسالة جديدة
-            print(f"Error editing message: {e}. Sending new message instead.")
-            bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
+    # نرسل رسالة جديدة دائمًا لضمان ظهور القائمة بشكل صحيح
+    bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "manage_true_sub_channels")
@@ -765,18 +757,16 @@ def back_to_main_channel_management(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     
-    # حذف الرسالة الحالية
+    # نحذف الرسالة الحالية لضمان عرض رسالة جديدة
     try:
         bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
     except Exception as e:
         print(f"Error deleting message: {e}")
-        # إذا فشل الحذف، فلا تمنع استمرار العملية
+        # إذا فشل الحذف لسبب ما، فلا تمنع استمرار العملية
 
-    # استدعاء manage_all_subscription_channels_menu ولكن بـ message جديد (كما لو ضغط على الزر النصي)
-    # لضمان عدم وجود مشاكل في تعديل الرسالة، نرسل رسالة جديدة بالكامل
-    # طريقة بديلة: يمكنك إنشاء كائن رسالة وهمي لتمريره للدالة
-    dummy_message = types.Message(message_id=0, from_user=call.from_user, date=int(time.time()), chat=call.message.chat, content_type='text', options={'text': 'إدارة قنوات الاشتراك'})
-    manage_all_subscription_channels_menu(dummy_message)
+    # نرسل رسالة جديدة تحتوي على القائمة الرئيسية لإدارة القنوات
+    # هذا يضمن أن القائمة تظهر دائمًا بشكل صحيح كرسالة جديدة
+    manage_all_subscription_channels_menu(call.message) # يمكننا تمرير call.message هنا لأنه سيتم تجاهل محتوياته في الدالة
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("add_channel_", "delete_channel_", "view_channels_")))
