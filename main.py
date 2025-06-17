@@ -27,6 +27,7 @@ waiting_for_delete = {} # {user_id: {"category": "v1", "videos": videos, "prompt
 true_sub_pending = {}  # {user_id: step} - لتتبع تقدم المستخدم في الاشتراك الإجباري الحقيقي
 
 # متغيرات جديدة لإدارة القنوات (القنوات الاختيارية + الإجبارية)
+# الآن ستخزن أيضًا معرف الرسالة للسؤال وسياق العودة
 waiting_for_channel_link = {} # {user_id: {"prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 waiting_for_channel_to_delete = {} # {user_id: {"channels": channels, "prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 
@@ -72,7 +73,8 @@ def load_subscribe_links_v2():
     return links
 
 
-true_subscribe_links = load_true_subscribe_links() # قم بتحميلها هنا عند بدء البوت
+# تحميل القوائم العالمية عند بدء البوت
+true_subscribe_links = load_true_subscribe_links()
 subscribe_links_v1 = load_subscribe_links_v1()
 subscribe_links_v2 = load_subscribe_links_v2()
 
@@ -291,6 +293,13 @@ def handle_delete_choice(message):
             video_to_delete = videos[choice - 1]
             chat_id = video_to_delete["chat_id"]
             message_id = video_to_delete["message_id"]
+
+            # حذف الرسالة التي تطلب الرقم
+            if data.get("prompt_message_id"):
+                try:
+                    bot.delete_message(chat_id=user_id, message_id=data["prompt_message_id"])
+                except Exception as e:
+                    print(f"Error deleting prompt message: {e}")
 
             # حذف الرسالة من القناة
             bot.delete_message(chat_id, message_id)
@@ -900,24 +909,199 @@ def handle_specific_channel_action(call):
             text += f"{i}. {channel['link']}\n"
         bot.send_message(user_id, text)
 
+# --- معالج جديد لإضافة قنوات الاشتراك الإجباري (الحقيقي) ---
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_channel_link)
+def handle_add_true_channel_link(message):
+    user_id = message.from_user.id
+    data = waiting_for_channel_link.get(user_id)
+    if not data:
+        return
 
-# --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
-app = Flask('')
+    link = message.text.strip()
+    prompt_message_id = data.get("prompt_message_id")
+    context = data.get("context")
 
-@app.route('/')
-def home():
-    """المسار الرئيسي للخادم الويب."""
-    return "Bot is running"
+    # حذف الرسالة التي تطلب الرابط
+    if prompt_message_id:
+        try:
+            bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+        except Exception as e:
+            print(f"Error deleting prompt message: {e}")
 
-def run():
-    """تشغيل خادم الويب."""
-    app.run(host='0.0.0.0', port=3000)
+    if not link.startswith("http") and not link.startswith("t.me"):
+        bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط صحيح (يبدأ بـ http أو t.me).")
+        # إعادة طلب الرابط مع الحفاظ على وضع الانتظار
+        sent_message = bot.send_message(user_id, "أرسل لي رابط القناة التي تريد إضافتها.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add(types.KeyboardButton("رجوع")))
+        waiting_for_channel_link[user_id] = {"prompt_message_id": sent_message.message_id, "channel_type": "true", "context": context}
+        return
 
-def keep_alive():
-    """تشغيل الخادم في موضوع منفصل."""
-    t = Thread(target=run)
-    t.start()
+    # التحقق مما إذا كانت القناة موجودة بالفعل
+    if true_subscribe_channels_col.find_one({"link": link}):
+        bot.send_message(user_id, "⚠️ هذه القناة موجودة بالفعل في قائمة الاشتراك الإجباري.")
+    else:
+        true_subscribe_channels_col.insert_one({"link": link})
+        global true_subscribe_links
+        true_subscribe_links = load_true_subscribe_links() # إعادة تحميل القائمة العالمية
+        bot.send_message(user_id, "✅ تم إضافة القناة بنجاح إلى الاشتراك الإجباري.")
+    
+    # العودة إلى القائمة الصحيحة
+    if context == "true_sub_management":
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("إضافة قناة", callback_data="add_channel_true"),
+            types.InlineKeyboardButton("حذف قناة", callback_data="delete_channel_true"),
+            types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
+        )
+        markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", reply_markup=markup)
+    else: # Fallback to owner_keyboard if context is somehow lost or unexpected
+        bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
+    
+    waiting_for_channel_link.pop(user_id) # مسح حالة الانتظار بعد المعالجة
 
-keep_alive()
-bot.infinity_polling()
 
+# --- معالج جديد لإضافة قنوات الاشتراك الوهمي (فيديوهات1 و فيديوهات2) ---
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_optional_link)
+def handle_add_optional_channel_link(message):
+    user_id = message.from_user.id
+    data = waiting_for_optional_link.get(user_id)
+    if not data:
+        return
+
+    link = message.text.strip()
+    category = data.get("category")
+    prompt_message_id = data.get("prompt_message_id")
+    context = data.get("context")
+
+    # حذف الرسالة التي تطلب الرابط
+    if prompt_message_id:
+        try:
+            bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+        except Exception as e:
+            print(f"Error deleting prompt message: {e}")
+
+    if not link.startswith("http") and not link.startswith("t.me"):
+        bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط صحيح (يبدأ بـ http أو t.me).")
+        # إعادة طلب الرابط مع الحفاظ على وضع الانتظار
+        sent_message = bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {category}.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add(types.KeyboardButton("رجوع")))
+        waiting_for_optional_link[user_id] = {"category": category, "prompt_message_id": sent_message.message_id, "context": context}
+        return
+
+    collection = db[f"optional_subscribe_channels_{category}"]
+    if collection.find_one({"link": link}):
+        bot.send_message(user_id, f"⚠️ هذه القناة موجودة بالفعل في قائمة قنوات {category}.")
+    else:
+        collection.insert_one({"link": link})
+        global subscribe_links_v1, subscribe_links_v2
+        if category == "v1":
+            subscribe_links_v1 = load_subscribe_links_v1()
+        else: # v2
+            subscribe_links_v2 = load_subscribe_links_v2()
+        bot.send_message(user_id, f"✅ تم إضافة القناة بنجاح إلى قنوات {category}.")
+    
+    # العودة إلى القائمة الصحيحة (لوحة مفاتيح إدارة القنوات الوهمية)
+    if context == "fake_sub_management":
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات1)", callback_data="add_channel_v1"),
+            types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2")
+        )
+        markup.add(
+            types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات1)", callback_data="delete_channel_v1"),
+            types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2")
+        )
+        markup.add(
+            types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات1)", callback_data="view_channels_v1"),
+            types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
+        )
+        markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:", reply_markup=markup)
+    else:
+        bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
+
+    waiting_for_optional_link.pop(user_id) # مسح حالة الانتظار بعد المعالجة
+
+
+# --- معالج جديد لحذف قنوات الاشتراك الإجباري (الحقيقي) ---
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_channel_to_delete)
+def handle_delete_true_channel_choice(message):
+    user_id = message.from_user.id
+    data = waiting_for_channel_to_delete.get(user_id)
+    if not data:
+        return
+
+    try:
+        choice = int(message.text)
+        channels = data["channels"]
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+
+        # حذف الرسالة التي تطلب الرقم
+        if prompt_message_id:
+            try:
+                bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+            except Exception as e:
+                print(f"Error deleting prompt message: {e}")
+
+        if 1 <= choice <= len(channels):
+            channel_to_delete = channels[choice - 1]
+            link = channel_to_delete["link"]
+            
+            true_subscribe_channels_col.delete_one({"link": link})
+            global true_subscribe_links
+            true_subscribe_links = load_true_subscribe_links() # إعادة تحميل القائمة العالمية
+
+            bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} بنجاح من الاشتراك الإجباري.")
+        else:
+            bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
+        
+        # العودة إلى القائمة الصحيحة
+        if context == "true_sub_management":
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton("إضافة قناة", callback_data="add_channel_true"),
+                types.InlineKeyboardButton("حذف قناة", callback_data="delete_channel_true"),
+                types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
+            )
+            markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+            bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", reply_markup=markup)
+        else:
+            bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
+
+        waiting_for_channel_to_delete.pop(user_id) # مسح حالة الانتظار بعد المعالجة
+
+    except ValueError:
+        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+
+
+# --- معالج جديد لحذف قنوات الاشتراك الوهمي (فيديوهات1 و فيديوهات2) ---
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_optional_delete)
+def handle_delete_optional_channel_choice(message):
+    user_id = message.from_user.id
+    data = waiting_for_optional_delete.get(user_id)
+    if not data:
+        return
+
+    try:
+        choice = int(message.text)
+        channels = data["channels"]
+        category = data["category"]
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+
+        # حذف الرسالة التي تطلب الرقم
+        if prompt_message_id:
+            try:
+                bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+            except Exception as e:
+                print(f"Error deleting prompt message: {e}")
+
+        if 1 <= choice <= len(channels):
+            channel_to_delete = channels[choice - 1]
+            link = channel_to_delete["link"]
+            
+            collection = db[f"optional_subscribe_channels_{category}"]
+            collection.delete_one({"link": link})
+            global subscribe_links_v1, subscribe_links_v2
+            if category == "v1":
+                subscribe_links_v
