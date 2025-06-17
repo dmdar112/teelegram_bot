@@ -305,7 +305,7 @@ def check_true_subscription(user_id, first_name):
                     markup = types.InlineKeyboardMarkup()
                     markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                    return False # توقف هنا وانتظر تفاعل المستخدم، وأعد False
+                    return # توقف هنا وانتظر تفاعل المستخدم
             else: # رابط دعوة خاص (يبدأ بـ +)
                 # بالنسبة للروابط الخاصة، لا يمكن التحقق من الاشتراك بسهولة باستخدام get_chat_member
                 # إلا إذا كان البوت قد تمت إضافته للقناة كإداري.
@@ -319,7 +319,7 @@ def check_true_subscription(user_id, first_name):
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
                 bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                return False # توقف هنا وانتظر تفاعل المستخدم، وأعد False
+                return # توقف هنا وانتظر تفاعل المستخدم
             
             # إذا كان مشتركًا أو تم تجاوز فحص القناة الخاصة بنجاح، استمر في الحلقة
             true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
@@ -336,7 +336,7 @@ def check_true_subscription(user_id, first_name):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
             bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-            return False # توقف هنا
+            return # توقف هنا
 
     # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
     if all_channels_subscribed:
@@ -349,14 +349,17 @@ def check_true_subscription(user_id, first_name):
             users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
-        
-        return True # كل شيء تمام، المستخدم مشترك في كل القنوات
+
+        # استدعاء المنطق الفعلي بعد التحقق
+        send_start_welcome_message(user_id, first_name)
     else:
         # إذا لم يكن مشتركًا في كل القنوات بعد، تأكد من إخفاء الكيبورد
+        # هذه الرسالة لن تظهر لأننا نرسل رسالة "أهلاً بك..." في handle_start
+        # ولكن الكيبورد سيتم إخفاؤه.
+        # bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في جميع القنوات الإجبارية أولاً.", reply_markup=types.ReplyKeyboardRemove())
         user_data_db = users_col.find_one({"user_id": user_id})
         if user_data_db and user_data_db.get("joined", False):
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": False}})
-        return False # ليس مشتركًا في كل القنوات
 
 
 @bot.message_handler(commands=['start'])
@@ -372,18 +375,9 @@ def handle_start(message):
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
     # دائمًا، حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
-    
-    # تحقق من الاشتراك الإجباري
-    is_subscribed = check_true_subscription(user_id, first_name)
-
-    # إذا كان المستخدم غير مشترك في جميع القنوات الإجبارية، أخفِ لوحة المفاتيح
-    if not is_subscribed:
-        # لا نرسل رسالة هنا، فقط نخفي لوحة المفاتيح
-        bot.send_message(user_id, "...", reply_markup=types.ReplyKeyboardRemove())
-        bot.delete_message(chat_id=message.chat.id, message_id=message.message_id + 1) # لحذف الرسالة "..."
-    # إذا كان مشتركاً بالفعل، أرسل رسالة الترحيب مع لوحة المفاتيح الرئيسية
-    else:
-        send_start_welcome_message(user_id, first_name)
+    # مع إخفاء الكيبورد في البداية حتى يتم إكمال الاشتراكات.
+    bot.send_message(user_id, "أهلاً بك! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
+    check_true_subscription(user_id, first_name)
 
 
 def send_start_welcome_message(user_id, first_name):
@@ -414,11 +408,7 @@ def handle_check_true_subscription_callback(call):
     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
     user_id = call.from_user.id
     first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
-    
-    # بعد التحقق، إذا كان مشتركاً، أرسل رسالة الترحيب
-    is_subscribed = check_true_subscription(user_id, first_name)
-    if is_subscribed:
-        send_start_welcome_message(user_id, first_name)
+    check_true_subscription(user_id, first_name)
 
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
