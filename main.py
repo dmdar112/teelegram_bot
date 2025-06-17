@@ -198,23 +198,30 @@ def delete_videos_v2(message):
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
 
-# --- تم تعديل هذه الدالة للتعامل مع زر "رجوع" بشكل عام ومسح جميع الحالات ---
-@bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id == OWNER_ID)
+
+@bot.message_handler(func=lambda m: m.text == "رجوع" and (m.from_user.id in waiting_for_delete or \
+                                                         m.from_user.id in waiting_for_channel_to_delete or \
+                                                         m.from_user.id in waiting_for_channel_link or \
+                                                         m.from_user.id in waiting_for_optional_link or \
+                                                         m.from_user.id in waiting_for_optional_delete))
 def handle_back_command(message):
-    """معالج لزر الرجوع أثناء عملية الحذف أو إدارة القنوات."""
+    """معالج لزر الرجوع أثناء عملية الحذف أو إدارة القنوات (زر نصي)."""
     user_id = message.from_user.id
 
     # إزالة المستخدم من قوائم الانتظار المختلفة
-    waiting_for_delete.pop(user_id, None)
-    waiting_for_channel_to_delete.pop(user_id, None)
-    waiting_for_channel_link.pop(user_id, None)
-    waiting_for_optional_link.pop(user_id, None)
-    waiting_for_optional_delete.pop(user_id, None)
-    owner_upload_mode.pop(user_id, None) # أضف هذه السطور لمسح أي وضع رفع نشط
+    if user_id in waiting_for_delete:
+        waiting_for_delete.pop(user_id)
+    if user_id in waiting_for_channel_to_delete:
+        waiting_for_channel_to_delete.pop(user_id)
+    if user_id in waiting_for_channel_link:
+        waiting_for_channel_link.pop(user_id)
+    if user_id in waiting_for_optional_link:
+        waiting_for_optional_link.pop(user_id)
+    if user_id in waiting_for_optional_delete:
+        waiting_for_optional_delete.pop(user_id)
 
     # إعادة لوحة مفاتيح المالك
     bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
-
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
@@ -705,8 +712,7 @@ def manage_true_sub_channels(call):
         types.InlineKeyboardButton("حذف قناة", callback_data="delete_channel_true"),
         types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
     )
-    # --- تم تعديل هذا السطر ---
-    markup.add(types.InlineKeyboardButton("العودة إلى قائمة الإدارة الرئيسية", callback_data="owner_main_menu"))
+    markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية", callback_data="back_to_main_channel_management"))
     bot.edit_message_text("أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
 
@@ -734,8 +740,8 @@ def manage_fake_sub_channels(call):
         types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
     )
 
-    # --- تم تعديل هذا السطر ---
-    markup.add(types.InlineKeyboardButton("🔙 العودة إلى قائمة الإدارة الرئيسية", callback_data="owner_main_menu"))
+    # زر العودة
+    markup.add(types.InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_channel_management"))
 
     bot.edit_message_text(
         "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:",
@@ -744,19 +750,12 @@ def manage_fake_sub_channels(call):
         reply_markup=markup
     )
 
-# --- دالة جديدة للعودة إلى قائمة المالك الرئيسية من أي مكان في إدارة القنوات ---
-@bot.callback_query_handler(func=lambda call: call.data == "owner_main_menu")
-def back_to_owner_main_menu(call):
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_main_channel_management")
+def back_to_main_channel_management(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
-    # تأكد من مسح أي حالات انتظار قد تكون نشطة
-    waiting_for_delete.pop(user_id, None)
-    waiting_for_channel_to_delete.pop(user_id, None)
-    waiting_for_channel_link.pop(user_id, None)
-    waiting_for_optional_link.pop(user_id, None)
-    waiting_for_optional_delete.pop(user_id, None)
-    owner_upload_mode.pop(user_id, None)
-    bot.edit_message_text("تم الرجوع إلى القائمة الرئيسية للمالك.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=owner_keyboard())
+    # هذا هو التعديل: إرسال لوحة مفاتيح المالك الرئيسية بدلاً من إعادة قائمة إدارة القنوات
+    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("add_channel_", "delete_channel_", "view_channels_")))
@@ -769,9 +768,10 @@ def handle_specific_channel_action(call):
 
     # Handle "add channel"
     if action_type == "add":
-        back_to_channel_management_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        back_to_channel_management_markup.add(types.KeyboardButton("رجوع")) # إضافة زر الرجوع هنا
-        bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {channel_category} (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).", parse_mode="Markdown", reply_markup=back_to_channel_management_markup)
+        # إضافة زر "رجوع" في الـ ReplyKeyboardMarkup
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {channel_category} (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown", reply_markup=back_markup)
         if channel_category == "true":
             waiting_for_channel_link[user_id] = True
         else: # v1 or v2
@@ -800,7 +800,7 @@ def handle_specific_channel_action(call):
         text = f"📋 قائمة قنوات {channel_category}:\n"
         for i, channel in enumerate(channels, 1):
             text += f"{i}. {channel['link']}\n"
-        text += "\nأرسل رقم القناة التي تريد حذفها."
+        text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
         
         if channel_category == "true":
             waiting_for_channel_to_delete[user_id] = {"channels": channels}
@@ -839,7 +839,7 @@ def add_true_channel_link_from_unified(message):
     link = message.text.strip()
 
     if link == "رجوع":
-        handle_back_command(message) # استخدام دالة الرجوع الموحدة
+        handle_back_command(message)
         return
 
     if link.startswith("http://") or link.startswith("https://"):
@@ -863,7 +863,7 @@ def add_optional_channel_link_from_unified(message):
     link = message.text.strip()
 
     if link == "رجوع":
-        handle_back_command(message) # استخدام دالة الرجوع الموحدة
+        handle_back_command(message)
         return
 
     if link.startswith("http://") or link.startswith("https://"):
@@ -888,7 +888,7 @@ def delete_true_channel_link_from_unified(message):
     data = waiting_for_channel_to_delete.get(user_id)
 
     if message.text == "رجوع":
-        handle_back_command(message) # استخدام دالة الرجوع الموحدة
+        handle_back_command(message)
         return
 
     try:
@@ -917,7 +917,7 @@ def delete_optional_channel_link_from_unified(message):
     category = data["category"]
 
     if message.text == "رجوع":
-        handle_back_command(message) # استخدام دالة الرجوع الموحدة
+        handle_back_command(message)
         return
 
     try:
