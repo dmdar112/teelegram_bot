@@ -700,7 +700,7 @@ def manage_all_subscription_channels_menu(message):
         types.InlineKeyboardButton("اشتراك حقيقي إجباري", callback_data="manage_true_sub_channels"),
         types.InlineKeyboardButton("اشتراك وهمي (فيديوهات 1 و 2)", callback_data="manage_fake_sub_channels")
     )
-    # نرسل رسالة جديدة دائمًا لضمان ظهور القائمة بشكل صحيح
+    # نرسل رسالة جديدة دائمًا عند الدخول إلى هذه القائمة
     bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
 
 
@@ -757,16 +757,20 @@ def back_to_main_channel_management(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     
-    # نحذف الرسالة الحالية لضمان عرض رسالة جديدة
+    # نحذف الرسالة الحالية التي تحتوي على الأزرار المضمنة
     try:
         bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
     except Exception as e:
-        print(f"Error deleting message: {e}")
-        # إذا فشل الحذف لسبب ما، فلا تمنع استمرار العملية
+        print(f"Error deleting message on back: {e}")
+        # لا نوقف التنفيذ إذا فشل الحذف
 
-    # نرسل رسالة جديدة تحتوي على القائمة الرئيسية لإدارة القنوات
-    # هذا يضمن أن القائمة تظهر دائمًا بشكل صحيح كرسالة جديدة
-    manage_all_subscription_channels_menu(call.message) # يمكننا تمرير call.message هنا لأنه سيتم تجاهل محتوياته في الدالة
+    # الآن، نعيد إرسال القائمة الرئيسية لإدارة القنوات كرسالة جديدة
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("اشتراك حقيقي إجباري", callback_data="manage_true_sub_channels"),
+        types.InlineKeyboardButton("اشتراك وهمي (فيديوهات 1 و 2)", callback_data="manage_fake_sub_channels")
+    )
+    bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("add_channel_", "delete_channel_", "view_channels_")))
