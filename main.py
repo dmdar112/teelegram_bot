@@ -881,7 +881,7 @@ def handle_specific_channel_action(call):
         text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
         
         # إرسال الرسالة وتخزين الـ message_id وسياق العودة
-        sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
+        sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True) # <<< تم التعديل هنا
 
         if channel_category == "true":
             waiting_for_channel_to_delete[user_id] = {"channels": channels, "prompt_message_id": sent_message.message_id, "channel_type": "true", "context": "true_sub_management"}
@@ -907,7 +907,7 @@ def handle_specific_channel_action(call):
         text = f"📋 قنوات الاشتراك الحالية لـ {channel_category}:\n"
         for i, channel in enumerate(channels, 1):
             text += f"{i}. {channel['link']}\n"
-        bot.send_message(user_id, text)
+        bot.send_message(user_id, text, disable_web_page_preview=True) # <<< تم التعديل هنا
 
 # --- معالج جديد لإضافة قنوات الاشتراك الإجباري (الحقيقي) ---
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_channel_link)
