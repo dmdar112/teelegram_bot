@@ -25,13 +25,9 @@ CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")
 waiting_for_delete = {}
 true_sub_pending = {}  # {user_id: step} - لتتبع تقدم المستخدم في الاشتراك الإجباري الحقيقي
 
-# متغيرات جديدة لإدارة القنوات (القنوات الاختيارية + الإجبارية)
-waiting_for_channel_link = {} # يستخدم لإضافة قنوات الاشتراك الإجباري
-waiting_for_channel_to_delete = {} # يستخدم لحذف قنوات الاشتراك الإجباري
-
-waiting_for_optional_link = {} # {user_id: category} - لإضافة قنوات فيديوهات1/2
-waiting_for_optional_delete = {} # {user_id: category} - لحذف قنوات فيديوهات1/2
-
+# متغيرات جديدة لإدارة قنوات الاشتراك الإجباري
+waiting_for_channel_link = {}
+waiting_for_channel_to_delete = {}
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 
@@ -45,12 +41,7 @@ users_col = db["users"]
 approved_v1_col = db["approved_v1"]
 approved_v2_col = db["approved_v2"]
 notified_users_col = db["notified_users"]
-true_subscribe_channels_col = db["true_subscribe_channels"] # المجموعة لقنوات الاشتراك الإجباري
-
-# مجموعات جديدة لقنوات الاشتراك الاختياري (فيديوهات1 و فيديوهات2)
-optional_subscribe_channels_v1_col = db["optional_subscribe_channels_v1"]
-optional_subscribe_channels_v2_col = db["optional_subscribe_channels_v2"]
-
+true_subscribe_channels_col = db["true_subscribe_channels"] # المجموعة الجديدة
 
 # تحميل قنوات الاشتراك الإجباري من قاعدة البيانات عند بدء البوت
 def load_true_subscribe_links():
@@ -58,23 +49,19 @@ def load_true_subscribe_links():
     links = [doc["link"] for doc in true_subscribe_channels_col.find()]
     return links
 
-# تحميل قنوات الاشتراك الاختياري لفيديوهات1 من قاعدة البيانات
-def load_subscribe_links_v1():
-    """تحميل روابط قنوات الاشتراك الاختياري لفيديوهات1 من قاعدة البيانات."""
-    links = [doc["link"] for doc in optional_subscribe_channels_v1_col.find()]
-    return links
-
-# تحميل قنوات الاشتراك الاختياري لفيديوهات2 من قاعدة البيانات
-def load_subscribe_links_v2():
-    """تحميل روابط قنوات الاشتراك الاختياري لفيديوهات2 من قاعدة البيانات."""
-    links = [doc["link"] for doc in optional_subscribe_channels_v2_col.find()]
-    return links
-
-
 true_subscribe_links = load_true_subscribe_links() # قم بتحميلها هنا عند بدء البوت
-subscribe_links_v1 = load_subscribe_links_v1()
-subscribe_links_v2 = load_subscribe_links_v2()
 
+subscribe_links_v1 = [
+    "https://t.me/+2L5KrXuCDUA5ZWIy",
+    "https://t.me/+SPTrcs3tJqhlMDVi",
+    "https://t.me/+W2KuzsUu_zcyODIy",
+    "https://t.me/+CFA6qHiV0zw1NjRk",
+]
+
+subscribe_links_v2 = [
+    "https://t.me/R2M199",
+    "https://t.me/SNOKER_VIP",
+]
 
 pending_check = {} # لتتبع تقدم المستخدم في الاشتراكات الاختيارية (فيديوهات1/2)
 owner_upload_mode = {}
@@ -109,15 +96,17 @@ def main_keyboard():
     )
 
 def owner_keyboard():
-    """إنشاء لوحة مفاتيح المالك مع أزرار التحكم."""
+    """إنشاء لوحة مفاتيح المالك مع أزرار التحكم الجديدة."""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("فيديوهات1", "فيديوهات2") # هذه الأزرار ستعرض قائمة إدارة للمالك الآن
+    markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
     markup.row("رفع فيديوهات1", "رفع فيديوهات2")
     markup.row("تنظيف فيديوهات1", "تنظيف فيديوهات2")
-    markup.row("تفعيل صيانة فيديوهات2", "إيقاف صيانة فيديوهات2")
+    markup.row("تفعيل صيانة فيديوهات2", "إيقاف صيانة فيديوهات2") # أزرار جديدة لوضع الصيانة
     markup.row("رسالة جماعية مع صورة")
-    markup.row("إدارة قنوات الاشتراك الإجباري") # زر واحد لإدارة قنوات true_subscribe_links
+    # الأزرار الجديدة لإدارة قنوات الاشتراك
+    markup.row("تعيين قناة اشتراك", "حذف قناة اشتراك")
+    markup.row("عرض قنوات الاشتراك")
     return markup
 
 def get_all_approved_users():
@@ -199,27 +188,19 @@ def delete_videos_v2(message):
     bot.send_message(user_id, text, reply_markup=back_markup)
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
 
-
-@bot.message_handler(func=lambda m: m.text == "رجوع" and (m.from_user.id in waiting_for_delete or \
-                                                         m.from_user.id in waiting_for_channel_to_delete or \
-                                                         m.from_user.id in waiting_for_channel_link or \
-                                                         m.from_user.id in waiting_for_optional_link or \
-                                                         m.from_user.id in waiting_for_optional_delete))
+@bot.message_handler(func=lambda m: m.text == "رجوع" and (m.from_user.id in waiting_for_delete or m.from_user.id in waiting_for_channel_to_delete))
 def handle_back_command(message):
-    """معالج لزر الرجوع أثناء عملية الحذف أو إدارة القنوات."""
+    """معالج لزر الرجوع أثناء عملية الحذف أو حذف القناة."""
     user_id = message.from_user.id
 
-    # إزالة المستخدم من قوائم الانتظار المختلفة
+    # إزالة المستخدم من قوائم الانتظار
     if user_id in waiting_for_delete:
         waiting_for_delete.pop(user_id)
     if user_id in waiting_for_channel_to_delete:
         waiting_for_channel_to_delete.pop(user_id)
-    if user_id in waiting_for_channel_link:
+    if user_id in waiting_for_channel_link: # إذا كان ينتظر رابط قناة
         waiting_for_channel_link.pop(user_id)
-    if user_id in waiting_for_optional_link:
-        waiting_for_optional_link.pop(user_id)
-    if user_id in waiting_for_optional_delete:
-        waiting_for_optional_delete.pop(user_id)
+
 
     # إعادة لوحة مفاتيح المالك
     bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
@@ -311,13 +292,6 @@ def check_true_subscription(user_id, first_name):
     يقوم بالتحقق من جميع قنوات true_subscribe_links بشكل متسلسل
     ويدفع المستخدم للاشتراك في القناة التالية إذا لم يكن مشتركًا.
     """
-    global true_subscribe_links # تأكد من استخدام أحدث قائمة
-    true_subscribe_links = load_true_subscribe_links() # إعادة تحميل في كل مرة للتحقق من التحديثات
-
-    if not true_subscribe_links: # إذا لم تكن هناك قنوات اشتراك إجباري معرفة
-        send_start_welcome_message(user_id, first_name)
-        return
-
     # تهيئة الخطوة الحالية: إذا لم يكن المستخدم موجودًا في true_sub_pending، ابدأ من 0
     step = true_sub_pending.get(user_id, 0)
     
@@ -347,6 +321,9 @@ def check_true_subscription(user_id, first_name):
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
                     return # توقف هنا وانتظر تفاعل المستخدم
             else: # رابط دعوة خاص (يبدأ بـ +)
+                # بالنسبة للروابط الخاصة، لا يمكن التحقق من الاشتراك بسهولة باستخدام get_chat_member
+                # إلا إذا كان البوت قد تمت إضافته للقناة كإداري.
+                # لتجنب التعقيد، سنفترض أن المستخدم يجب أن يضغط على الرابط ثم يعود ليتحقق عبر الزر.
                 all_channels_subscribed = False
                 true_sub_pending[user_id] = index # احفظ الخطوة
                 text = (
@@ -362,12 +339,13 @@ def check_true_subscription(user_id, first_name):
             true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
 
         except Exception as e:
+            # يمكن أن يحدث خطأ إذا كانت القناة غير موجودة، أو البوت ليس مشرفًا، أو مشكلة في API
             print(f"❌ Error checking channel {current_channel_link} for user {user_id}: {e}")
             all_channels_subscribed = False
             true_sub_pending[user_id] = index # ابقَ على نفس الخطوة ليحاول مرة أخرى
             text = (
                 f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
-                "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة (إذا كانت خاصة)، ثم حاول الضغط على الزر مرة أخرى."
+                "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة، ثم حاول الضغط على الزر مرة أخرى."
             )
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
@@ -389,6 +367,10 @@ def check_true_subscription(user_id, first_name):
         # استدعاء المنطق الفعلي بعد التحقق
         send_start_welcome_message(user_id, first_name)
     else:
+        # إذا لم يكن مشتركًا في كل القنوات بعد، تأكد من إخفاء الكيبورد
+        # هذه الرسالة لن تظهر لأننا نرسل رسالة "أهلاً بك..." في handle_start
+        # ولكن الكيبورد سيتم إخفاؤه.
+        # bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في جميع القنوات الإجبارية أولاً.", reply_markup=types.ReplyKeyboardRemove())
         user_data_db = users_col.find_one({"user_id": user_id})
         if user_data_db and user_data_db.get("joined", False):
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": False}})
@@ -406,6 +388,8 @@ def handle_start(message):
         return
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
+    # دائمًا، حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
+    # مع إخفاء الكيبورد في البداية حتى يتم إكمال الاشتراكات.
     bot.send_message(user_id, "أهلاً بك! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
     check_true_subscription(user_id, first_name)
 
@@ -447,25 +431,11 @@ def handle_v1(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # لو المالك ضغط على زر فيديوهات1، اعرض له قائمة إدارة القنوات الخاصة بفيديوهات1
-    if user_id == OWNER_ID:
-        markup = types.InlineKeyboardMarkup()
-        markup.row(
-            types.InlineKeyboardButton("إضافة قناة", callback_data="manage_optional_v1_add"),
-            types.InlineKeyboardButton("حذف قناة", callback_data="manage_optional_v1_delete")
-        )
-        markup.row(
-            types.InlineKeyboardButton("عرض القنوات", callback_data="manage_optional_v1_view"),
-            types.InlineKeyboardButton("عرض الفيديوهات", callback_data="manage_optional_v1_show_videos")
-        )
-        bot.send_message(user_id, "أنت المالك. اختر إجراءً لإدارة قنوات فيديوهات1:", reply_markup=markup)
-        return
-
-    # للمستخدمين العاديين، استمر بالمنطق الحالي
+    # قبل السماح بالوصول إلى فيديوهات1، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
         bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name)
+        check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
         return
 
     if user_id in load_approved_users(approved_v1_col):
@@ -485,25 +455,11 @@ def handle_v2(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # لو المالك ضغط على زر فيديوهات2، اعرض له قائمة إدارة القنوات الخاصة بفيديوهات2
-    if user_id == OWNER_ID:
-        markup = types.InlineKeyboardMarkup()
-        markup.row(
-            types.InlineKeyboardButton("إضافة قناة", callback_data="manage_optional_v2_add"),
-            types.InlineKeyboardButton("حذف قناة", callback_data="manage_optional_v2_delete")
-        )
-        markup.row(
-            types.InlineKeyboardButton("عرض القنوات", callback_data="manage_optional_v2_view"),
-            types.InlineKeyboardButton("عرض الفيديوهات", callback_data="manage_optional_v2_show_videos")
-        )
-        bot.send_message(user_id, "أنت المالك. اختر إجراءً لإدارة قنوات فيديوهات2:", reply_markup=markup)
-        return
-
-    # للمستخدمين العاديين، استمر بالمنطق الحالي
+    # قبل السماح بالوصول إلى فيديوهات2، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
         bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name)
+        check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
         return
 
     if maintenance_mode and user_id != OWNER_ID:
@@ -523,20 +479,9 @@ def handle_v2(message):
 
 def send_required_links(chat_id, category):
     """إرسال روابط الاشتراك المطلوبة."""
-    global subscribe_links_v1, subscribe_links_v2 # تأكد من استخدام أحدث قائمة
-    subscribe_links_v1 = load_subscribe_links_v1()
-    subscribe_links_v2 = load_subscribe_links_v2()
-
     data = pending_check.get(chat_id, {"category": category, "step": 0})
     step = data["step"]
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
-
-    if not links: # إذا لم تكن هناك قنوات اشتراك اختيارية معرفة
-        notify_owner_for_approval(chat_id, "مستخدم", category)
-        bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً لهذا القسم). الرجاء الانتظار.", reply_markup=main_keyboard())
-        pending_check.pop(chat_id, None)
-        return
-
 
     if step >= len(links):
         notify_owner_for_approval(chat_id, "مستخدم", category)
@@ -564,7 +509,11 @@ def verify_subscription_callback(call):
     user_id = call.from_user.id
     _, category, step_str = call.data.split("_")
     step = int(step_str) + 1
-    links = load_subscribe_links_v1() if category == "v1" else load_subscribe_links_v2()
+    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
+
+    # هنا تحتاج إلى تنفيذ التحقق الفعلي من الاشتراك في القناة الحالية
+    # يمكنك استخدام get_chat_member هنا لروابط القنوات التي يمكن التحقق منها
+    # أو ببساطة المضي قدمًا إذا كانت هي الخطوة الأخيرة في سلسلة الاشتراك الاختياري
 
     if step < len(links):
         pending_check[user_id] = {"category": category, "step": step}
@@ -718,58 +667,18 @@ def receive_broadcast_text(message):
         bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
         waiting_for_broadcast.clear()
 
-# --- معالجات قنوات الاشتراك الإجباري (true_subscribe_links) من خلال زر "إدارة قنوات الاشتراك الإجباري" ---
+# --- معالجات قنوات الاشتراك الإجباري الجديدة ---
 
-@bot.message_handler(func=lambda m: m.text == "إدارة قنوات الاشتراك الإجباري" and m.from_user.id == OWNER_ID)
-def manage_true_subscribe_channels_button(message):
-    """يعرض قائمة إدارة لقنوات الاشتراك الإجباري."""
+@bot.message_handler(func=lambda m: m.text == "تعيين قناة اشتراك" and m.from_user.id == OWNER_ID)
+def ask_for_channel_link(message):
+    """يطلب رابط القناة من المالك لإضافتها كقناة اشتراك إجباري."""
     user_id = message.from_user.id
-    markup = types.InlineKeyboardMarkup()
-    markup.row(
-        types.InlineKeyboardButton("إضافة قناة إجباري", callback_data="true_add_channel"),
-        types.InlineKeyboardButton("حذف قناة إجباري", callback_data="true_delete_channel")
-    )
-    markup.row(
-        types.InlineKeyboardButton("عرض القنوات الإجبارية", callback_data="true_view_channels")
-    )
-    bot.send_message(user_id, "اختر إجراءً لإدارة قنوات الاشتراك الإجباري:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("true_"))
-def handle_true_channel_management_callback(call):
-    bot.answer_callback_query(call.id)
-    user_id = call.from_user.id
-    action = call.data.split("_")[1] # add, delete, view
-
-    if action == "add":
-        bot.send_message(user_id, "أرسل لي رابط القناة التي تريد إضافتها كقناة اشتراك إجباري (مثل: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown")
-        waiting_for_channel_link[user_id] = True
-    elif action == "delete":
-        channels = list(true_subscribe_channels_col.find())
-        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        back_markup.add(types.KeyboardButton("رجوع"))
-        if not channels:
-            bot.send_message(user_id, "لا توجد قنوات اشتراك إجباري لإزالتها.", reply_markup=owner_keyboard())
-            return
-
-        text = "📋 قائمة قنوات الاشتراك الإجباري:\n"
-        for i, channel in enumerate(channels, 1):
-            text += f"{i}. {channel['link']}\n"
-        text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
-        bot.send_message(user_id, text, reply_markup=back_markup)
-        waiting_for_channel_to_delete[user_id] = {"channels": channels}
-    elif action == "view":
-        channels = list(true_subscribe_channels_col.find())
-        if not channels:
-            bot.send_message(user_id, "لا توجد قنوات اشتراك إجباري معرفة حالياً.")
-            return
-        text = "📋 قنوات الاشتراك الإجباري الحالية:\n"
-        for i, channel in enumerate(channels, 1):
-            text += f"{i}. {channel['link']}\n"
-        bot.send_message(user_id, text)
+    bot.send_message(user_id, "أرسل لي رابط القناة التي تريد إضافتها كقناة اشتراك إجباري (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown")
+    waiting_for_channel_link[user_id] = True
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_channel_link.get(m.from_user.id))
 def add_channel_link(message):
-    """يستقبل رابط القناة الإجبارية ويضيفه إلى قاعدة البيانات."""
+    """يستقبل رابط القناة ويضيفه إلى قاعدة البيانات."""
     user_id = message.from_user.id
     link = message.text.strip()
 
@@ -780,6 +689,7 @@ def add_channel_link(message):
     if link.startswith("http://") or link.startswith("https://"):
         if not true_subscribe_channels_col.find_one({"link": link}):
             true_subscribe_channels_col.insert_one({"link": link})
+            # قم بتحديث قائمة true_subscribe_links في الذاكرة
             global true_subscribe_links
             true_subscribe_links = load_true_subscribe_links()
             bot.send_message(user_id, f"✅ تم إضافة القناة: `{link}` بنجاح.", parse_mode="Markdown", reply_markup=owner_keyboard())
@@ -791,9 +701,31 @@ def add_channel_link(message):
         waiting_for_channel_link.pop(user_id)
 
 
+@bot.message_handler(func=lambda m: m.text == "حذف قناة اشتراك" and m.from_user.id == OWNER_ID)
+def ask_to_delete_channel(message):
+    """يعرض قائمة بقنوات الاشتراك الإجباري ويطلب من المالك اختيار قناة للحذف."""
+    user_id = message.from_user.id
+    channels = list(true_subscribe_channels_col.find())
+
+    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+
+    if not channels:
+        bot.send_message(user_id, "لا توجد قنوات اشتراك إجباري لإزالتها.", reply_markup=owner_keyboard())
+        return
+
+    text = "📋 قائمة قنوات الاشتراك الإجباري:\n"
+    for i, channel in enumerate(channels, 1):
+        text += f"{i}. {channel['link']}\n"
+    text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
+
+    bot.send_message(user_id, text, reply_markup=back_markup)
+    waiting_for_channel_to_delete[user_id] = {"channels": channels}
+
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_channel_to_delete.get(m.from_user.id))
 def delete_channel_link(message):
-    """يستقبل رقم القناة الإجبارية المراد حذفها ويقوم بحذفها من قاعدة البيانات."""
+    """يستقبل رقم القناة المراد حذفها ويقوم بحذفها من قاعدة البيانات."""
     user_id = message.from_user.id
     data = waiting_for_channel_to_delete.get(user_id)
 
@@ -808,120 +740,32 @@ def delete_channel_link(message):
         if 1 <= choice <= len(channels):
             channel_to_delete = channels[choice - 1]
             true_subscribe_channels_col.delete_one({"_id": channel_to_delete["_id"]})
+            # قم بتحديث قائمة true_subscribe_links في الذاكرة
             global true_subscribe_links
             true_subscribe_links = load_true_subscribe_links()
             bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} بنجاح.", reply_markup=owner_keyboard())
             waiting_for_channel_to_delete.pop(user_id)
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.", reply_markup=owner_keyboard())
-            waiting_for_channel_to_delete.pop(user_id)
+            waiting_for_channel_to_delete.pop(user_id) # إزالة من قائمة الانتظار بعد خطأ في الإدخال
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.", reply_markup=owner_keyboard())
-        waiting_for_channel_to_delete.pop(user_id)
+        waiting_for_channel_to_delete.pop(user_id) # إزالة من قائمة الانتظار بعد خطأ في الإدخال
 
-
-# --- معالجات إدارة القنوات الاختيارية (فيديوهات1 و فيديوهات2) ---
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("manage_optional_"))
-def handle_optional_channel_management_callback(call):
-    bot.answer_callback_query(call.id)
-    user_id = call.from_user.id
-    _, _, category_prefix, action = call.data.split("_") # manage_optional_v1_add
-
-    category = category_prefix # v1 أو v2
-    
-    if action == "add":
-        bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لقسم فيديوهات {category[-1]} (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown")
-        waiting_for_optional_link[user_id] = category
-    elif action == "delete":
-        col = optional_subscribe_channels_v1_col if category == "v1" else optional_subscribe_channels_v2_col
-        channels = list(col.find())
-        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        back_markup.add(types.KeyboardButton("رجوع"))
-
-        if not channels:
-            bot.send_message(user_id, f"لا توجد قنوات اشتراك لإزالتها في قسم فيديوهات {category[-1]}.", reply_markup=owner_keyboard())
-            return
-
-        text = f"📋 قائمة قنوات فيديوهات {category[-1]}:\n"
-        for i, channel in enumerate(channels, 1):
-            text += f"{i}. {channel['link']}\n"
-        text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
-        bot.send_message(user_id, text, reply_markup=back_markup)
-        waiting_for_optional_delete[user_id] = {"category": category, "channels": channels}
-    elif action == "view":
-        col = optional_subscribe_channels_v1_col if category == "v1" else optional_subscribe_channels_v2_col
-        channels = list(col.find())
-        if not channels:
-            bot.send_message(user_id, f"لا توجد قنوات اشتراك معرفة حالياً لقسم فيديوهات {category[-1]}.")
-            return
-        text = f"📋 قنوات الاشتراك الحالية لقسم فيديوهات {category[-1]}:\n"
-        for i, channel in enumerate(channels, 1):
-            text += f"{i}. {channel['link']}\n"
-        bot.send_message(user_id, text)
-    elif action == "show_videos":
-        # هذه الحالة تعيد المالك إلى وظيفته الأصلية لعرض الفيديوهات لهذا القسم
-        send_videos(user_id, category)
-
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_optional_link.get(m.from_user.id))
-def add_optional_channel_link(message):
-    """يستقبل رابط القناة الاختيارية ويضيفه إلى قاعدة البيانات."""
+@bot.message_handler(func=lambda m: m.text == "عرض قنوات الاشتراك" and m.from_user.id == OWNER_ID)
+def view_true_subscribe_channels(message):
+    """يعرض جميع قنوات الاشتراك الإجباري المخزنة حاليًا."""
     user_id = message.from_user.id
-    category = waiting_for_optional_link.get(user_id)
-    link = message.text.strip()
+    channels = list(true_subscribe_channels_col.find())
 
-    if link == "رجوع":
-        handle_back_command(message)
+    if not channels:
+        bot.send_message(user_id, "لا توجد قنوات اشتراك إجباري معرفة حالياً.")
         return
 
-    if link.startswith("http://") or link.startswith("https://"):
-        col = optional_subscribe_channels_v1_col if category == "v1" else optional_subscribe_channels_v2_col
-        if not col.find_one({"link": link}):
-            col.insert_one({"link": link})
-            global subscribe_links_v1, subscribe_links_v2
-            subscribe_links_v1 = load_subscribe_links_v1() # تحديث القوائم في الذاكرة
-            subscribe_links_v2 = load_subscribe_links_v2()
-            bot.send_message(user_id, f"✅ تم إضافة القناة لقسم فيديوهات {category[-1]}: `{link}` بنجاح.", parse_mode="Markdown", reply_markup=owner_keyboard())
-        else:
-            bot.send_message(user_id, f"هذه القناة موجودة بالفعل في قائمة قنوات فيديوهات {category[-1]}.", reply_markup=owner_keyboard())
-        waiting_for_optional_link.pop(user_id)
-    else:
-        bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط URL يبدأ بـ `http://` أو `https://`.", reply_markup=owner_keyboard())
-        waiting_for_optional_link.pop(user_id)
-
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_optional_delete.get(m.from_user.id))
-def delete_optional_channel_link(message):
-    """يستقبل رقم القناة الاختيارية المراد حذفها ويقوم بحذفها من قاعدة البيانات."""
-    user_id = message.from_user.id
-    data = waiting_for_optional_delete.get(user_id)
-    category = data["category"]
-
-    if message.text == "رجوع":
-        handle_back_command(message)
-        return
-
-    try:
-        choice = int(message.text)
-        channels = data["channels"]
-
-        if 1 <= choice <= len(channels):
-            channel_to_delete = channels[choice - 1]
-            col = optional_subscribe_channels_v1_col if category == "v1" else optional_subscribe_channels_v2_col
-            col.delete_one({"_id": channel_to_delete["_id"]})
-            global subscribe_links_v1, subscribe_links_v2
-            subscribe_links_v1 = load_subscribe_links_v1() # تحديث القوائم في الذاكرة
-            subscribe_links_v2 = load_subscribe_links_v2()
-            bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} من قسم فيديوهات {category[-1]} بنجاح.", reply_markup=owner_keyboard())
-            waiting_for_optional_delete.pop(user_id)
-        else:
-            bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.", reply_markup=owner_keyboard())
-            waiting_for_optional_delete.pop(user_id)
-    except ValueError:
-        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.", reply_markup=owner_keyboard())
-        waiting_for_optional_delete.pop(user_id)
-
+    text = "📋 قنوات الاشتراك الإجباري الحالية:\n"
+    for i, channel in enumerate(channels, 1):
+        text += f"{i}. {channel['link']}\n"
+    bot.send_message(user_id, text)
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
 app = Flask('')
