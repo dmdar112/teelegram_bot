@@ -722,16 +722,34 @@ def manage_fake_sub_channels(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     markup = types.InlineKeyboardMarkup(row_width=2)
+
+    # صف 1: إضافة وحذف فيديوهات1
     markup.add(
         types.InlineKeyboardButton("إضافة قناة (فيديوهات1)", callback_data="add_channel_v1"),
-        types.InlineKeyboardButton("حذف قناة (فيديوهات1)", callback_data="delete_channel_v1"),
-        types.InlineKeyboardButton("عرض القنوات (فيديوهات1)", callback_data="view_channels_v1"),
+        types.InlineKeyboardButton("حذف قناة (فيديوهات1)", callback_data="delete_channel_v1")
+    )
+
+    # صف 2: إضافة وحذف فيديوهات2
+    markup.add(
         types.InlineKeyboardButton("إضافة قناة (فيديوهات2)", callback_data="add_channel_v2"),
-        types.InlineKeyboardButton("حذف قناة (فيديوهات2)", callback_data="delete_channel_v2"),
+        types.InlineKeyboardButton("حذف قناة (فيديوهات2)", callback_data="delete_channel_v2")
+    )
+
+    # صف 3: عرض قنوات فيديوهات1 وفيديوهات2
+    markup.add(
+        types.InlineKeyboardButton("عرض القنوات (فيديوهات1)", callback_data="view_channels_v1"),
         types.InlineKeyboardButton("عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
     )
+
+    # زر العودة
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية", callback_data="back_to_main_channel_management"))
-    bot.edit_message_text("أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+
+    bot.edit_message_text(
+        "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=markup
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_main_channel_management")
 def back_to_main_channel_management(call):
