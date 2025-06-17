@@ -22,15 +22,16 @@ CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")
 # آيدي القناة الخاصة بفيديوهات2
 CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")
 
-waiting_for_delete = {}
+# تم تعديل هذه المتغيرات لتخزين message_id والسياق للعودة الصحيحة
+waiting_for_delete = {} # {user_id: {"category": "v1", "videos": videos, "prompt_message_id": message_id, "context": "owner_main"}}
 true_sub_pending = {}  # {user_id: step} - لتتبع تقدم المستخدم في الاشتراك الإجباري الحقيقي
 
 # متغيرات جديدة لإدارة القنوات (القنوات الاختيارية + الإجبارية)
-waiting_for_channel_link = {} # يستخدم لإضافة قنوات الاشتراك الإجباري
-waiting_for_channel_to_delete = {} # يستخدم لحذف قنوات الاشتراك الإجباري
+waiting_for_channel_link = {} # {user_id: {"prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
+waiting_for_channel_to_delete = {} # {user_id: {"channels": channels, "prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 
-waiting_for_optional_link = {} # {user_id: category} - لإضافة قنوات فيديوهات1/2
-waiting_for_optional_delete = {} # {user_id: category} - لحذف قنوات فيديوهات1/2
+waiting_for_optional_link = {} # {user_id: {"category": category, "prompt_message_id": message_id, "context": "fake_sub_management"}}
+waiting_for_optional_delete = {} # {user_id: {"category": category, "channels": channels, "prompt_message_id": message_id, "context": "fake_sub_management"}}
 
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -171,8 +172,9 @@ def delete_videos_v1(message):
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
 
     # إرسال الرسالة مع لوحة المفاتيح الجديدة
-    bot.send_message(user_id, text, reply_markup=back_markup)
-    waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
+    sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
+    # تحديث waiting_for_delete لتخزين message_id وسياق العودة
+    waiting_for_delete[user_id] = {"category": "v1", "videos": videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
 def delete_videos_v2(message):
@@ -195,8 +197,9 @@ def delete_videos_v2(message):
     text += "\nأرسل رقم الفيديو الذي تريد حذفه."
 
     # إرسال الرسالة مع لوحة المفاتيح الجديدة
-    bot.send_message(user_id, text, reply_markup=back_markup)
-    waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
+    sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
+    # تحديث waiting_for_delete لتخزين message_id وسياق العودة
+    waiting_for_delete[user_id] = {"category": "v2", "videos": videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
 
 
 @bot.message_handler(func=lambda m: m.text == "رجوع" and (m.from_user.id in waiting_for_delete or \
@@ -207,21 +210,69 @@ def delete_videos_v2(message):
 def handle_back_command(message):
     """معالج لزر الرجوع أثناء عملية الحذف أو إدارة القنوات (زر نصي)."""
     user_id = message.from_user.id
+    prompt_message_id = None
+    context = None # لتحديد القائمة التي يجب العودة إليها
 
-    # إزالة المستخدم من قوائم الانتظار المختلفة
+    # التحقق من قوائم الانتظار وإزالة المستخدم وتحديد سياق العودة
     if user_id in waiting_for_delete:
-        waiting_for_delete.pop(user_id)
-    if user_id in waiting_for_channel_to_delete:
-        waiting_for_channel_to_delete.pop(user_id)
-    if user_id in waiting_for_channel_link:
-        waiting_for_channel_link.pop(user_id)
-    if user_id in waiting_for_optional_link:
-        waiting_for_optional_link.pop(user_id)
-    if user_id in waiting_for_optional_delete:
-        waiting_for_optional_delete.pop(user_id)
+        data = waiting_for_delete.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+    elif user_id in waiting_for_channel_to_delete:
+        data = waiting_for_channel_to_delete.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+    elif user_id in waiting_for_channel_link:
+        data = waiting_for_channel_link.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+    elif user_id in waiting_for_optional_link:
+        data = waiting_for_optional_link.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+    elif user_id in waiting_for_optional_delete:
+        data = waiting_for_optional_delete.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
 
-    # إعادة لوحة مفاتيح المالك
-    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
+    # حذف الرسالة السابقة التي تحتوي على السؤال
+    if prompt_message_id:
+        try:
+            bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+        except Exception as e:
+            print(f"Error deleting prompt message: {e}")
+
+    # العودة إلى القائمة الصحيحة بناءً على السياق
+    if context == "owner_main":
+        bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
+    elif context == "true_sub_management":
+        # إعادة عرض قائمة إدارة قنوات الاشتراك الحقيقي الإجباري
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("إضافة قناة", callback_data="add_channel_true"),
+            types.InlineKeyboardButton("حذف قناة", callback_data="delete_channel_true"),
+            types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
+        )
+        markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", reply_markup=markup)
+    elif context == "fake_sub_management":
+        # إعادة عرض قائمة إدارة قنوات الاشتراك الوهمي
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات1)", callback_data="add_channel_v1"),
+            types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2")
+        )
+        markup.add(
+            types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات1)", callback_data="delete_channel_v1"),
+            types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2")
+        )
+        markup.add(
+            types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات1)", callback_data="view_channels_v1"),
+            types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
+        )
+        markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:", reply_markup=markup)
+
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
@@ -786,11 +837,13 @@ def handle_specific_channel_action(call):
         # إضافة زر "رجوع" في الـ ReplyKeyboardMarkup
         back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         back_markup.add(types.KeyboardButton("رجوع"))
-        bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {channel_category} (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown", reply_markup=back_markup)
+        
+        # إرسال الرسالة وتخزين الـ message_id وسياق العودة
+        sent_message = bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {channel_category} (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown", reply_markup=back_markup)
         if channel_category == "true":
-            waiting_for_channel_link[user_id] = True
+            waiting_for_channel_link[user_id] = {"prompt_message_id": sent_message.message_id, "channel_type": "true", "context": "true_sub_management"}
         else: # v1 or v2
-            waiting_for_optional_link[user_id] = channel_category
+            waiting_for_optional_link[user_id] = {"category": channel_category, "prompt_message_id": sent_message.message_id, "context": "fake_sub_management"}
 
     # Handle "delete channel"
     elif action_type == "delete":
@@ -809,6 +862,7 @@ def handle_specific_channel_action(call):
         channels = list(collection.find())
 
         if not channels:
+            # يجب أن نتحقق من هذا الشرط قبل إرسال الرسالة لتجنب تخزين message_id خاطئ
             bot.send_message(user_id, f"لا توجد قنوات {channel_category} لإزالتها.", reply_markup=owner_keyboard())
             return
 
@@ -817,13 +871,14 @@ def handle_specific_channel_action(call):
             text += f"{i}. {channel['link']}\n"
         text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
         
-        if channel_category == "true":
-            waiting_for_channel_to_delete[user_id] = {"channels": channels}
-        else:
-            waiting_for_optional_delete[user_id] = {"category": channel_category, "channels": channels}
-        
-        bot.send_message(user_id, text, reply_markup=back_markup)
+        # إرسال الرسالة وتخزين الـ message_id وسياق العودة
+        sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
 
+        if channel_category == "true":
+            waiting_for_channel_to_delete[user_id] = {"channels": channels, "prompt_message_id": sent_message.message_id, "channel_type": "true", "context": "true_sub_management"}
+        else:
+            waiting_for_optional_delete[user_id] = {"category": channel_category, "channels": channels, "prompt_message_id": sent_message.message_id, "context": "fake_sub_management"}
+        
     # Handle "view channels"
     elif action_type == "view":
         channels = []
@@ -865,3 +920,4 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
+
