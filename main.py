@@ -1104,4 +1104,57 @@ def handle_delete_optional_channel_choice(message):
             collection.delete_one({"link": link})
             global subscribe_links_v1, subscribe_links_v2
             if category == "v1":
-                subscribe_links_v
+                subscribe_links_v1 = load_subscribe_links_v1()
+            else: # v2
+                subscribe_links_v2 = load_subscribe_links_v2()
+
+            bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} بنجاح من قنوات {category}.")
+        else:
+            bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
+
+        # العودة إلى القائمة الصحيحة (لوحة مفاتيح إدارة القنوات الوهمية)
+        if context == "fake_sub_management":
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات1)", callback_data="add_channel_v1"),
+                types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2")
+            )
+            markup.add(
+                types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات1)", callback_data="delete_channel_v1"),
+                types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2")
+            )
+            markup.add(
+                types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات1)", callback_data="view_channels_v1"),
+                types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
+            )
+            markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+            bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:", reply_markup=markup)
+        else:
+            bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
+
+        waiting_for_optional_delete.pop(user_id) # مسح حالة الانتظار بعد المعالجة
+
+    except ValueError:
+        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+
+
+# --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    """المسار الرئيسي للخادم الويب."""
+    return "Bot is running"
+
+def run():
+    """تشغيل خادم الويب."""
+    app.run(host='0.0.0.0', port=3000)
+
+def keep_alive():
+    """تشغيل الخادم في موضوع منفصل."""
+    t = Thread(target=run)
+    t.start()
+
+keep_alive()
+bot.infinity_polling()
+
