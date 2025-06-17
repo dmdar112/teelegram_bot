@@ -22,7 +22,7 @@ CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")
 # آيدي القناة الخاصة بفيديوهات2
 CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")
 
-waiting_for_delete = {}
+waiting_for_delete = {} # لتتبع الفيديوهات المعروضة للحذف
 true_sub_pending = {}  # {user_id: step} - لتتبع تقدم المستخدم في الاشتراك الإجباري الحقيقي
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -58,8 +58,8 @@ true_subscribe_links = [
 ]
 
 pending_check = {} # لتتبع تقدم المستخدم في الاشتراكات الاختيارية (فيديوهات1/2)
-owner_upload_mode = {}
-waiting_for_broadcast = {}
+owner_upload_mode = {} # لتحديد القسم الذي يرفع فيه المالك الفيديوهات
+waiting_for_broadcast = {} # لتتبع حالة إرسال الرسائل الجماعية
 
 def load_approved_users(collection):
     """تحميل المستخدمين الموافق عليهم من قاعدة البيانات."""
@@ -84,20 +84,27 @@ def add_notified_user(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
 def main_keyboard():
-    """إنشاء لوحة المفاتيح الرئيسية للمستخدم العادي."""
+    """إنشاء لوحة المفاتيح الرئيسية للمستخدم العادي (Reply Keyboard)."""
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
         types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
     )
 
-def owner_keyboard():
-    """إنشاء لوحة مفاتيح المالك مع أزرار التحكم الجديدة."""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("فيديوهات1", "فيديوهات2")
-    markup.row("حذف فيديوهات1", "حذف فيديوهات2")
-    markup.row("رفع فيديوهات1", "رفع فيديوهات2")
-    markup.row("تنظيف فيديوهات1", "تنظيف فيديوهات2")
-    markup.row("تفعيل صيانة فيديوهات2", "إيقاف صيانة فيديوهات2") # أزرار جديدة لوضع الصيانة
-    markup.row("رسالة جماعية مع صورة")
+def owner_inline_keyboard():
+    """إنشاء لوحة مفاتيح المالك بأزرار تحكم شفافة (Inline Keyboard)."""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("عرض فيديوهات1", callback_data="owner_action_view_v1"),
+        types.InlineKeyboardButton("عرض فيديوهات2", callback_data="owner_action_view_v2"),
+        types.InlineKeyboardButton("حذف فيديوهات1", callback_data="owner_action_delete_menu_v1"),
+        types.InlineKeyboardButton("حذف فيديوهات2", callback_data="owner_action_delete_menu_v2"),
+        types.InlineKeyboardButton("رفع لـ فيديوهات1", callback_data="owner_action_upload_mode_v1"),
+        types.InlineKeyboardButton("رفع لـ فيديوهات2", callback_data="owner_action_upload_mode_v2"),
+        types.InlineKeyboardButton("تنظيف فيديوهات1", callback_data="owner_action_clean_v1"),
+        types.InlineKeyboardButton("تنظيف فيديوهات2", callback_data="owner_action_clean_v2"),
+        types.InlineKeyboardButton("تفعيل صيانة فيديوهات2", callback_data="owner_action_maintenance_on_v2"),
+        types.InlineKeyboardButton("إيقاف صيانة فيديوهات2", callback_data="owner_action_maintenance_off_v2"),
+        types.InlineKeyboardButton("رسالة جماعية مع صورة", callback_data="owner_action_broadcast_photo")
+    )
     return markup
 
 def get_all_approved_users():
@@ -127,73 +134,37 @@ def send_videos(user_id, category):
                 caption="",
                 caption_entities=None
             )
-            time.sleep(1)  # لمنع الحظر أو التقييد
+            time.sleep(0.5)  # لمنع الحظر أو التقييد
         except Exception as e:
-            print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
+            print(f"❌ خطأ أثناء إرسال الفيديو للمستخدم {user_id}: {e}")
+            # يمكن إضافة منطق لإزالة الفيديو من DB إذا لم يعد موجوداً في القناة
+            pass
 
-@bot.message_handler(func=lambda m: m.text == "حذف فيديوهات1" and m.from_user.id == OWNER_ID)
-def delete_videos_v1(message):
-    """معالج لزر حذف فيديوهات1."""
-    user_id = message.from_user.id
-    db_videos_col = db["videos_v1"]
-    videos = list(db_videos_col.find().limit(20))
+# --- دوال وإجراءات المالك باستخدام Inline Keyboard ---
 
-    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
-    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    back_markup.add(types.KeyboardButton("رجوع"))
+def send_delete_menu_inline(user_id, category):
+    """إرسال قائمة الفيديوهات للحذف للمالك باستخدام Inline Keyboard."""
+    db_videos_col = db[f"videos_{category}"]
+    videos = list(db_videos_col.find().limit(20)) # عرض 20 فيديو كحد أقصى
 
     if not videos:
-        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
+        bot.send_message(user_id, f"لا يوجد فيديوهات في فيديوهات{category[-1]} للحذف.", reply_markup=owner_inline_keyboard())
         return
 
-    text = "📋 قائمة فيديوهات1:\n"
+    text = f"📋 قائمة فيديوهات{category[-1]} للحذف (أرسل رقم الفيديو):\n"
     for i, vid in enumerate(videos, 1):
         text += f"{i}. رسالة رقم: {vid['message_id']}\n"
-    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+    text += "\nالرجاء إرسال رقم الفيديو الذي تريد حذفه."
 
-    # إرسال الرسالة مع لوحة المفاتيح الجديدة
-    bot.send_message(user_id, text, reply_markup=back_markup)
-    waiting_for_delete[user_id] = {"category": "v1", "videos": videos}
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="owner_action_main_menu"))
 
-@bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
-def delete_videos_v2(message):
-    """معالج لزر حذف فيديوهات2."""
-    user_id = message.from_user.id
-    db_videos_col = db["videos_v2"]
-    videos = list(db_videos_col.find().limit(20))
+    bot.send_message(user_id, text, reply_markup=markup)
+    waiting_for_delete[user_id] = {"category": category, "videos": videos}
 
-    # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
-    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    back_markup.add(types.KeyboardButton("رجوع"))
-
-    if not videos:
-        bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
-        return
-
-    text = "📋 قائمة فيديوهات2:\n"
-    for i, vid in enumerate(videos, 1):
-        text += f"{i}. رسالة رقم: {vid['message_id']}\n"
-    text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-
-    # إرسال الرسالة مع لوحة المفاتيح الجديدة
-    bot.send_message(user_id, text, reply_markup=back_markup)
-    waiting_for_delete[user_id] = {"category": "v2", "videos": videos}
-
-@bot.message_handler(func=lambda m: m.text == "رجوع" and m.from_user.id in waiting_for_delete)
-def handle_back_command(message):
-    """معالج لزر الرجوع أثناء عملية الحذف."""
-    user_id = message.from_user.id
-
-    # إزالة المستخدم من قائمة الانتظار
-    if user_id in waiting_for_delete:
-        waiting_for_delete.pop(user_id)
-
-    # إعادة لوحة مفاتيح المالك
-    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
-def handle_delete_choice(message):
-    """معالج لاختيار الفيديو المراد حذفه من قبل المالك."""
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.text.isdigit() and m.from_user.id in waiting_for_delete)
+def handle_delete_choice_inline(message):
+    """معالج لاختيار الفيديو المراد حذفه من قبل المالك (بعد استخدام Inline Keyboard)."""
     user_id = message.from_user.id
     data = waiting_for_delete.get(user_id)
     if not data:
@@ -209,27 +180,27 @@ def handle_delete_choice(message):
             chat_id = video_to_delete["chat_id"]
             message_id = video_to_delete["message_id"]
 
-            # حذف الرسالة من القناة
-            bot.delete_message(chat_id, message_id)
-
-            # حذف السجل من قاعدة البيانات
-            db_videos_col = db[f"videos_{category}"]
-            db_videos_col.delete_one({"message_id": message_id})
-
-            bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} بنجاح.", reply_markup=owner_keyboard())
-            waiting_for_delete.pop(user_id)
+            try:
+                # حذف الرسالة من القناة
+                bot.delete_message(chat_id, message_id)
+                # حذف السجل من قاعدة البيانات
+                db_videos_col = db[f"videos_{category}"]
+                db_videos_col.delete_one({"message_id": message_id})
+                bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} بنجاح.", reply_markup=owner_inline_keyboard())
+            except Exception as e:
+                bot.send_message(user_id, f"❌ فشل حذف الفيديو من القناة. قد يكون الفيديو غير موجود: {e}", reply_markup=owner_inline_keyboard())
+            finally:
+                waiting_for_delete.pop(user_id)
 
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
 
     except ValueError:
-        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.", reply_markup=owner_inline_keyboard()) # نُعيد الأزرار الرئيسية في حال خطأ
 
-# معالج زر "تنظيف فيديوهات1"
-@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات1" and m.from_user.id == OWNER_ID)
-def clean_videos_v1_button(message):
-    """معالج لزر تنظيف فيديوهات1."""
-    user_id = message.from_user.id
+
+# معالج زر "تنظيف فيديوهات1" (يمكن إعادة استخدامه، سيتم استدعاؤه من الكولباك)
+def clean_videos_v1_action(user_id):
     db_videos_col = db["videos_v1"]
     channel_id = CHANNEL_ID_V1
 
@@ -248,13 +219,10 @@ def clean_videos_v1_button(message):
             db_videos_col.delete_one({'_id': vid['_id']})
             removed_count += 1
 
-    bot.send_message(user_id, f"✅ تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
+    bot.send_message(user_id, f"✅ تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_inline_keyboard())
 
-# معالج زر "تنظيف فيديوهات2"
-@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" and m.from_user.id == OWNER_ID)
-def clean_videos_v2_button(message):
-    """معالج لزر تنظيف فيديوهات2."""
-    user_id = message.from_user.id
+# معالج زر "تنظيف فيديوهات2" (يمكن إعادة استخدامه، سيتم استدعاؤه من الكولباك)
+def clean_videos_v2_action(user_id):
     db_videos_col = db["videos_v2"]
     channel_id = CHANNEL_ID_V2
 
@@ -271,19 +239,63 @@ def clean_videos_v2_button(message):
             db_videos_col.delete_one({'_id': vid['_id']})
             removed_count += 1
 
-    bot.send_message(user_id, f"✅ تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
+    bot.send_message(user_id, f"✅ تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_inline_keyboard())
+
+
+# --- معالج Callbacks للمالك ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("owner_action_") and call.from_user.id == OWNER_ID)
+def handle_owner_inline_actions(call):
+    bot.answer_callback_query(call.id) # يزيل حالة التحميل من الزر في واجهة المستخدم
+    user_id = call.from_user.id
+    action = call.data.replace("owner_action_", "")
+
+    if action == "view_v1":
+        send_videos(user_id, "v1")
+        bot.send_message(user_id, "أنت الآن في قسم فيديوهات1. اختر إجراء آخر:", reply_markup=owner_inline_keyboard())
+    elif action == "view_v2":
+        send_videos(user_id, "v2")
+        bot.send_message(user_id, "أنت الآن في قسم فيديوهات2. اختر إجراء آخر:", reply_markup=owner_inline_keyboard())
+    elif action == "delete_menu_v1":
+        send_delete_menu_inline(user_id, "v1")
+    elif action == "delete_menu_v2":
+        send_delete_menu_inline(user_id, "v2")
+    elif action == "upload_mode_v1":
+        owner_upload_mode[user_id] = 'v1'
+        bot.send_message(user_id, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1. أرسل الفيديو الآن.")
+    elif action == "upload_mode_v2":
+        owner_upload_mode[user_id] = 'v2'
+        bot.send_message(user_id, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2. أرسل الفيديو الآن.")
+    elif action == "clean_v1":
+        clean_videos_v1_action(user_id)
+    elif action == "clean_v2":
+        clean_videos_v2_action(user_id)
+    elif action == "maintenance_on_v2":
+        global maintenance_mode
+        maintenance_mode = True
+        bot.send_message(user_id, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2.", reply_markup=owner_inline_keyboard())
+    elif action == "maintenance_off_v2":
+        global maintenance_mode
+        maintenance_mode = False
+        bot.send_message(user_id, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2.", reply_markup=owner_inline_keyboard())
+    elif action == "broadcast_photo":
+        bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
+        waiting_for_broadcast["photo"] = True
+    elif action == "main_menu": # للعودة من قوائم فرعية
+        if user_id in waiting_for_delete:
+            waiting_for_delete.pop(user_id)
+        bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية للمالك:", reply_markup=owner_inline_keyboard())
+
 
 def check_true_subscription(user_id, first_name):
     """
     يقوم بالتحقق من جميع قنوات true_subscribe_links بشكل متسلسل
     ويدفع المستخدم للاشتراك في القناة التالية إذا لم يكن مشتركًا.
     """
-    # تهيئة الخطوة الحالية: إذا لم يكن المستخدم موجودًا في true_sub_pending، ابدأ من 0
     step = true_sub_pending.get(user_id, 0)
     
     # التأكد أن خطوة البداية لا تتجاوز عدد القنوات المتاحة
     if step >= len(true_subscribe_links):
-        step = 0 # أعد تعيينها لتبدأ من البداية إذا كان قد أكملها
+        step = 0
 
     all_channels_subscribed = True
     for index in range(step, len(true_subscribe_links)):
@@ -291,8 +303,7 @@ def check_true_subscription(user_id, first_name):
         try:
             channel_identifier = current_channel_link.split("t.me/")[-1]
             
-            # في حال كانت القناة عامة (@username)
-            if not channel_identifier.startswith('+'):
+            if not channel_identifier.startswith('+'): # قناة عامة @username
                 channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
                 member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
                 if member.status not in ['member', 'administrator', 'creator']:
@@ -305,13 +316,12 @@ def check_true_subscription(user_id, first_name):
                     markup = types.InlineKeyboardMarkup()
                     markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                    return # توقف هنا وانتظر تفاعل المستخدم
+                    return
             else: # رابط دعوة خاص (يبدأ بـ +)
-                # بالنسبة للروابط الخاصة، لا يمكن التحقق من الاشتراك بسهولة باستخدام get_chat_member
-                # إلا إذا كان البوت قد تمت إضافته للقناة كإداري.
-                # لتجنب التعقيد، سنفترض أن المستخدم يجب أن يضغط على الرابط ثم يعود ليتحقق عبر الزر.
+                # لا يمكن التحقق من الاشتراك في الروابط الخاصة إلا إذا كان البوت مشرفًا
+                # سنعتبر أن المستخدم يجب أن يضغط على الرابط ثم يعود ليتحقق عبر الزر.
                 all_channels_subscribed = False
-                true_sub_pending[user_id] = index # احفظ الخطوة
+                true_sub_pending[user_id] = index
                 text = (
                     "🔔 لطفاً اشترك في القناة التالية واضغط على الزر أدناه للمتابعة:\n"
                     f"📮: {current_channel_link}"
@@ -319,16 +329,14 @@ def check_true_subscription(user_id, first_name):
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
                 bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                return # توقف هنا وانتظر تفاعل المستخدم
+                return
             
-            # إذا كان مشتركًا أو تم تجاوز فحص القناة الخاصة بنجاح، استمر في الحلقة
-            true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
+            true_sub_pending[user_id] = index + 1
 
         except Exception as e:
-            # يمكن أن يحدث خطأ إذا كانت القناة غير موجودة، أو البوت ليس مشرفًا، أو مشكلة في API
             print(f"❌ Error checking channel {current_channel_link} for user {user_id}: {e}")
             all_channels_subscribed = False
-            true_sub_pending[user_id] = index # ابقَ على نفس الخطوة ليحاول مرة أخرى
+            true_sub_pending[user_id] = index
             text = (
                 f"⚠️ حدث خطأ أثناء التحقق من الاشتراك في القناة: {current_channel_link}.\n"
                 "يرجى التأكد أنك مشترك وأن البوت مشرف في القناة، ثم حاول الضغط على الزر مرة أخرى."
@@ -336,27 +344,20 @@ def check_true_subscription(user_id, first_name):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
             bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-            return # توقف هنا
+            return
 
-    # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
     if all_channels_subscribed:
         if user_id in true_sub_pending:
-            del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
+            del true_sub_pending[user_id]
         
-        # تحديث حالة الاشتراك في قاعدة البيانات
         user_data_db = users_col.find_one({"user_id": user_id})
         if not user_data_db:
             users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
 
-        # استدعاء المنطق الفعلي بعد التحقق
         send_start_welcome_message(user_id, first_name)
     else:
-        # إذا لم يكن مشتركًا في كل القنوات بعد، تأكد من إخفاء الكيبورد
-        # هذه الرسالة لن تظهر لأننا نرسل رسالة "أهلاً بك..." في handle_start
-        # ولكن الكيبورد سيتم إخفاؤه.
-        # bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في جميع القنوات الإجبارية أولاً.", reply_markup=types.ReplyKeyboardRemove())
         user_data_db = users_col.find_one({"user_id": user_id})
         if user_data_db and user_data_db.get("joined", False):
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": False}})
@@ -368,28 +369,25 @@ def handle_start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم جديد"
 
-    # إذا كان المستخدم هو المالك، أظهر لوحة مفاتيح المالك مباشرة
+    # إذا كان المستخدم هو المالك، أظهر لوحة مفاتيح المالك الشفافة مباشرة
     if user_id == OWNER_ID:
-        bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
+        bot.send_message(user_id, "مرحباً مالك البوت، اختر الإجراء:", reply_markup=owner_inline_keyboard())
         return
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
-    # دائمًا، حتى لو كان مسجلًا مسبقًا، هذه الخطوة تضمن أنه يمر بالتحقق في كل مرة يرسل /start
-    # مع إخفاء الكيبورد في البداية حتى يتم إكمال الاشتراكات.
     bot.send_message(user_id, "أهلاً بك! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
     check_true_subscription(user_id, first_name)
 
 
 def send_start_welcome_message(user_id, first_name):
     """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك في القنوات الإجبارية."""
-    # تأكدنا بالفعل من أن المستخدم ليس المالك في handle_start
     bot.send_message(user_id, f"""🔞 مرحباً بك ( {first_name} ) 🏳‍🌈
 📂اختر قسم الفيديوهات من الأزرار بالأسفل!
 
 ⚠️ المحتوى +18 - للكبار فقط!""", reply_markup=main_keyboard())
 
     if not has_notified(user_id):
-        total_users = len(get_all_approved_users())
+        total_users = users_col.count_documents({"joined": True}) # عدّ فقط المستخدمين الذين اجتازوا الاشتراك الإجباري
         bot.send_message(OWNER_ID, f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
 
 • الاسم : {first_name}
@@ -407,7 +405,7 @@ def handle_check_true_subscription_callback(call):
     """
     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
     user_id = call.from_user.id
-    first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
+    first_name = call.from_user.first_name or "مستخدم"
     check_true_subscription(user_id, first_name)
 
 
@@ -417,11 +415,10 @@ def handle_v1(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # قبل السماح بالوصول إلى فيديوهات1، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
         bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
+        check_true_subscription(user_id, first_name)
         return
 
     if user_id in load_approved_users(approved_v1_col):
@@ -441,11 +438,10 @@ def handle_v2(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # قبل السماح بالوصول إلى فيديوهات2، يجب أن يكون المستخدم قد اجتاز التحقق الإجباري
     user_data_db = users_col.find_one({"user_id": user_id})
     if not user_data_db or not user_data_db.get("joined", False):
         bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name) # نعيد توجيهه لإكمال الاشتراك الإجباري
+        check_true_subscription(user_id, first_name)
         return
 
     if maintenance_mode and user_id != OWNER_ID:
@@ -490,16 +486,12 @@ def send_required_links(chat_id, category):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
 def verify_subscription_callback(call):
     """معالج للتحقق من الاشتراك عبر الأزرار."""
-    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+    bot.answer_callback_query(call.id)
 
     user_id = call.from_user.id
     _, category, step_str = call.data.split("_")
     step = int(step_str) + 1
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
-
-    # هنا تحتاج إلى تنفيذ التحقق الفعلي من الاشتراك في القناة الحالية
-    # يمكنك استخدام get_chat_member هنا لروابط القنوات التي يمكن التحقق منها
-    # أو ببساطة المضي قدمًا إذا كانت هي الخطوة الأخيرة في سلسلة الاشتراك الاختياري
 
     if step < len(links):
         pending_check[user_id] = {"category": category, "step": step}
@@ -522,7 +514,7 @@ def verify_subscription_callback(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
 def resend_links(call):
     """إعادة إرسال روابط الاشتراك عند طلب المستخدم."""
-    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+    bot.answer_callback_query(call.id)
 
     user_id = call.from_user.id
     category = call.data.split("_")[1]
@@ -554,54 +546,29 @@ def handle_owner_response(call):
         bot.answer_callback_query(call.id, "🚫 غير مصرح لك بالقيام بهذا الإجراء.")
         return
 
+    bot.answer_callback_query(call.id) # إخفاء حالة التحميل من الزر
+
     if action == "approve":
         if category == "v1":
             add_approved_user(approved_v1_col, user_id)
         else:
             add_approved_user(approved_v2_col, user_id)
-        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
+        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.", reply_markup=main_keyboard())
         bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id)
     else:
-        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
+        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
 
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
-def set_upload_mode_v1_button(message):
-    """تعيين وضع الرفع لقسم فيديوهات1."""
-    owner_upload_mode[message.from_user.id] = 'v1'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
-
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
-def set_upload_mode_v2_button(message):
-    """تعيين وضع الرفع لقسم فيديوهات2."""
-    owner_upload_mode[message.from_user.id] = 'v2'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
-
-# معالج زر تفعيل وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
-def enable_maintenance_button(message):
-    global maintenance_mode
-    maintenance_mode = True
-    bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
-
-# معالج لزر إيقاف وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
-def disable_maintenance_button(message):
-    global maintenance_mode
-    maintenance_mode = False
-    bot.reply_to(message, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2. البوت عاد للعمل في هذا القسم.")
-
-@bot.message_handler(content_types=['video'])
+@bot.message_handler(content_types=['video'], func=lambda m: m.from_user.id == OWNER_ID and owner_upload_mode.get(m.from_user.id))
 def handle_video_upload(message):
     """معالج لرفع الفيديوهات من قبل المالك."""
     user_id = message.from_user.id
     mode = owner_upload_mode.get(user_id)
 
-    if user_id != OWNER_ID or not mode:
-        return  # تجاهل أي فيديو من غير المالك أو إن لم يحدد القسم
+    if not mode: # للتأكد، بالرغم من أن الـ func تضمن ذلك
+        return
 
-    # رفع الفيديو إلى القناة الخاصة
     try:
         sent = bot.send_video(
             chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
@@ -614,44 +581,39 @@ def handle_video_upload(message):
             "message_id": sent.message_id
         })
 
-        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
-
+        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.", reply_markup=owner_inline_keyboard())
+        owner_upload_mode.pop(user_id) # إنهاء وضع الرفع بعد الفيديو
     except Exception as e:
         print(f"❌ خطأ في رفع الفيديو: {e}")
-        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.", reply_markup=owner_inline_keyboard())
+        owner_upload_mode.pop(user_id, None)
 
-@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
-def ask_broadcast_photo(message):
-    """طلب صورة لرسالة جماعية."""
-    bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
-    waiting_for_broadcast["photo"] = True
-
-@bot.message_handler(content_types=['photo'])
+@bot.message_handler(content_types=['photo'], func=lambda m: waiting_for_broadcast.get("photo") and m.from_user.id == OWNER_ID)
 def receive_broadcast_photo(message):
     """استقبال الصورة للرسالة الجماعية."""
-    if waiting_for_broadcast.get("photo") and message.from_user.id == OWNER_ID:
-        waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
-        waiting_for_broadcast["photo"] = False
-        waiting_for_broadcast["awaiting_text"] = True
-        bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
+    waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
+    waiting_for_broadcast["photo"] = False
+    waiting_for_broadcast["awaiting_text"] = True
+    bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
 
 @bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
 def receive_broadcast_text(message):
     """استقبال نص الرسالة الجماعية وإرسالها."""
-    if waiting_for_broadcast.get("awaiting_text"):
-        photo_id = waiting_for_broadcast.get("photo_file_id")
-        text = message.text
-        users = get_all_approved_users()
-        sent_count = 0
-        for user_id in users:
-            try:
-                bot.send_photo(user_id, photo_id, caption=text)
-                sent_count += 1
-            except Exception as e:
-                print(f"Error sending broadcast to {user_id}: {e}")
-                pass
-        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
-        waiting_for_broadcast.clear()
+    photo_id = waiting_for_broadcast.get("photo_file_id")
+    text = message.text
+    users = get_all_approved_users() # إرسال للكل، ليس فقط الموافق عليهم للاقسام
+    sent_count = 0
+    for user_id in users:
+        try:
+            bot.send_photo(user_id, photo_id, caption=text)
+            sent_count += 1
+            time.sleep(0.1) # تأخير بسيط لتجنب التقييد
+        except Exception as e:
+            print(f"Error sending broadcast to {user_id}: {e}")
+            pass
+    bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.", reply_markup=owner_inline_keyboard())
+    waiting_for_broadcast.clear()
+
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
 app = Flask('')
@@ -672,3 +634,4 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
+
