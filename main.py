@@ -712,7 +712,7 @@ def manage_true_sub_channels(call):
         types.InlineKeyboardButton("حذف قناة", callback_data="delete_channel_true"),
         types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
     )
-    markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية", callback_data="back_to_main_channel_management"))
+    markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management")) # تم تعديل النص
     bot.edit_message_text("أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
 
@@ -741,7 +741,7 @@ def manage_fake_sub_channels(call):
     )
 
     # زر العودة
-    markup.add(types.InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_channel_management"))
+    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management")) # تم تعديل النص
 
     bot.edit_message_text(
         "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:",
@@ -754,8 +754,8 @@ def manage_fake_sub_channels(call):
 def back_to_main_channel_management(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
-    # هذا هو التعديل: إرسال لوحة مفاتيح المالك الرئيسية بدلاً من إعادة قائمة إدارة القنوات
-    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية", reply_markup=owner_keyboard())
+    # هذا هو التعديل: استدعاء دالة manage_all_subscription_channels_menu لإعادة عرض قائمة أقسام الاشتراك
+    manage_all_subscription_channels_menu(call.message)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("add_channel_", "delete_channel_", "view_channels_")))
@@ -829,116 +829,6 @@ def handle_specific_channel_action(call):
         for i, channel in enumerate(channels, 1):
             text += f"{i}. {channel['link']}\n"
         bot.send_message(user_id, text)
-
-# --- Updated handlers for adding/deleting channels to use the new unified flow ---
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_channel_link.get(m.from_user.id))
-def add_true_channel_link_from_unified(message):
-    """يستقبل رابط القناة الإجبارية ويضيفه إلى قاعدة البيانات (من القائمة الموحدة)."""
-    user_id = message.from_user.id
-    link = message.text.strip()
-
-    if link == "رجوع":
-        handle_back_command(message)
-        return
-
-    if link.startswith("http://") or link.startswith("https://"):
-        if not true_subscribe_channels_col.find_one({"link": link}):
-            true_subscribe_channels_col.insert_one({"link": link})
-            global true_subscribe_links
-            true_subscribe_links = load_true_subscribe_links()
-            bot.send_message(user_id, f"✅ تم إضافة القناة (إجباري): `{link}` بنجاح.", parse_mode="Markdown", reply_markup=owner_keyboard())
-        else:
-            bot.send_message(user_id, "هذه القناة موجودة بالفعل في قائمة قنوات الاشتراك الإجباري.", reply_markup=owner_keyboard())
-        waiting_for_channel_link.pop(user_id)
-    else:
-        bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط URL يبدأ بـ `http://` أو `https://`.", reply_markup=owner_keyboard())
-        waiting_for_channel_link.pop(user_id) # Clear the state even if invalid link
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_optional_link.get(m.from_user.id))
-def add_optional_channel_link_from_unified(message):
-    """يستقبل رابط القناة الاختيارية ويضيفه إلى قاعدة البيانات (من القائمة الموحدة)."""
-    user_id = message.from_user.id
-    category = waiting_for_optional_link.get(user_id)
-    link = message.text.strip()
-
-    if link == "رجوع":
-        handle_back_command(message)
-        return
-
-    if link.startswith("http://") or link.startswith("https://"):
-        col = optional_subscribe_channels_v1_col if category == "v1" else optional_subscribe_channels_v2_col
-        if not col.find_one({"link": link}):
-            col.insert_one({"link": link})
-            global subscribe_links_v1, subscribe_links_v2
-            subscribe_links_v1 = load_subscribe_links_v1() # تحديث القوائم في الذاكرة
-            subscribe_links_v2 = load_subscribe_links_v2()
-            bot.send_message(user_id, f"✅ تم إضافة القناة لقسم فيديوهات {category[-1]}: `{link}` بنجاح.", parse_mode="Markdown", reply_markup=owner_keyboard())
-        else:
-            bot.send_message(user_id, f"هذه القناة موجودة بالفعل في قائمة قنوات فيديوهات {category[-1]}.", reply_markup=owner_keyboard())
-        waiting_for_optional_link.pop(user_id)
-    else:
-        bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط URL يبدأ بـ `http://` أو `https://`.", reply_markup=owner_keyboard())
-        waiting_for_optional_link.pop(user_id) # Clear the state even if invalid link
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_channel_to_delete.get(m.from_user.id))
-def delete_true_channel_link_from_unified(message):
-    """يستقبل رقم القناة الإجبارية المراد حذفها ويقوم بحذفها من قاعدة البيانات (من القائمة الموحدة)."""
-    user_id = message.from_user.id
-    data = waiting_for_channel_to_delete.get(user_id)
-
-    if message.text == "رجوع":
-        handle_back_command(message)
-        return
-
-    try:
-        choice = int(message.text)
-        channels = data["channels"]
-
-        if 1 <= choice <= len(channels):
-            channel_to_delete = channels[choice - 1]
-            true_subscribe_channels_col.delete_one({"_id": channel_to_delete["_id"]})
-            global true_subscribe_links
-            true_subscribe_links = load_true_subscribe_links()
-            bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} (إجباري) بنجاح.", reply_markup=owner_keyboard())
-            waiting_for_channel_to_delete.pop(user_id)
-        else:
-            bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.", reply_markup=owner_keyboard())
-            waiting_for_channel_to_delete.pop(user_id)
-    except ValueError:
-        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.", reply_markup=owner_keyboard())
-        waiting_for_channel_to_delete.pop(user_id)
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_optional_delete.get(m.from_user.id))
-def delete_optional_channel_link_from_unified(message):
-    """يستقبل رقم القناة الاختيارية المراد حذفها ويقوم بحذفها من قاعدة البيانات (من القائمة الموحدة)."""
-    user_id = message.from_user.id
-    data = waiting_for_optional_delete.get(user_id)
-    category = data["category"]
-
-    if message.text == "رجوع":
-        handle_back_command(message)
-        return
-
-    try:
-        choice = int(message.text)
-        channels = data["channels"]
-
-        if 1 <= choice <= len(channels):
-            channel_to_delete = channels[choice - 1]
-            col = optional_subscribe_channels_v1_col if category == "v1" else optional_subscribe_channels_v2_col
-            col.delete_one({"_id": channel_to_delete["_id"]})
-            global subscribe_links_v1, subscribe_links_v2
-            subscribe_links_v1 = load_subscribe_links_v1() # تحديث القوائم في الذاكرة
-            subscribe_links_v2 = load_subscribe_links_v2()
-            bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} من قسم فيديوهات {category[-1]} بنجاح.", reply_markup=owner_keyboard())
-            waiting_for_optional_delete.pop(user_id)
-        else:
-            bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.", reply_markup=owner_keyboard())
-            waiting_for_optional_delete.pop(user_id)
-    except ValueError:
-        bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.", reply_markup=owner_keyboard())
-        waiting_for_optional_delete.pop(user_id)
 
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
