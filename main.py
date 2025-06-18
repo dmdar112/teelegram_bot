@@ -178,7 +178,7 @@ def delete_videos_v1(message):
 
     # إرسال الرسالة مع لوحة المفاتيح الجديدة
     sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
-    # تحديث waiting_for_delete لتخزين message_id وسياق العودة
+    # تحديث waiting_for_delete لتخزين message_id والسياق للعودة الصحيحة
     waiting_for_delete[user_id] = {"category": "v1", "videos": videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
 
 @bot.message_handler(func=lambda m: m.text == "حذف فيديوهات2" and m.from_user.id == OWNER_ID)
@@ -206,7 +206,7 @@ def delete_videos_v2(message):
 
     # إرسال الرسالة مع لوحة المفاتيح الجديدة
     sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
-    # تحديث waiting_for_delete لتخزين message_id وسياق العودة
+    # تحديث waiting_for_delete لتخزين message_id والسياق للعودة الصحيحة
     waiting_for_delete[user_id] = {"category": "v2", "videos": videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
 
 
@@ -619,6 +619,8 @@ def handle_v2(message):
         check_true_subscription(user_id, first_name)
         return
 
+    # Check for maintenance mode. OWNER_ID bypasses maintenance.
+    global maintenance_mode # Access the global variable
     if maintenance_mode and user_id != OWNER_ID:
         bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
         return
@@ -1350,6 +1352,22 @@ def handle_delete_optional_channel_choice(message):
             return # Exit to prevent going to the next menu immediately
         else:
             bot.send_message(user_id, f"لا توجد قنوات {category} لإزالتها.", reply_markup=owner_keyboard())
+
+# --- New handlers for Maintenance Mode buttons ---
+
+@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+def enable_maintenance_v2(message):
+    """معالج لزر تفعيل صيانة فيديوهات2."""
+    global maintenance_mode
+    maintenance_mode = True
+    bot.send_message(message.from_user.id, "✅ تم تفعيل وضع صيانة فيديوهات2.", reply_markup=owner_keyboard())
+
+@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+def disable_maintenance_v2(message):
+    """معالج لزر إيقاف صيانة فيديوهات2."""
+    global maintenance_mode
+    maintenance_mode = False
+    bot.send_message(message.from_user.id, "✅ تم إيقاف وضع صيانة فيديوهات2.", reply_markup=owner_keyboard())
 
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
