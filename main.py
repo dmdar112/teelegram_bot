@@ -80,8 +80,8 @@ subscribe_links_v2 = load_subscribe_links_v2()
 
 
 pending_check = {} # لتتبع تقدم المستخدم في الاشتراكات الاختيارية (فيديوهات1/2)
-owner_upload_mode = {}
-waiting_for_broadcast = {}
+owner_upload_mode = {} # {user_id: {"category": "v1", "prompt_message_id": message_id, "context": "owner_main"}}
+waiting_for_broadcast = {} # {user_id: {"photo": True/False, "awaiting_text": True/False, "photo_file_id": file_id, "prompt_message_id": message_id, "context": "owner_main"}}
 
 def load_approved_users(collection):
     """تحميل المستخدمين الموافق عليهم من قاعدة البيانات."""
@@ -214,9 +214,11 @@ def delete_videos_v2(message):
                                                          m.from_user.id in waiting_for_channel_to_delete or \
                                                          m.from_user.id in waiting_for_channel_link or \
                                                          m.from_user.id in waiting_for_optional_link or \
-                                                         m.from_user.id in waiting_for_optional_delete))
+                                                         m.from_user.id in waiting_for_optional_delete or \
+                                                         m.from_user.id in owner_upload_mode or \
+                                                         m.from_user.id in waiting_for_broadcast))
 def handle_back_command(message):
-    """معالج لزر الرجوع أثناء عملية الحذف أو إدارة القنوات (زر نصي)."""
+    """معالج لزر الرجوع أثناء عملية الحذف أو إدارة القنوات أو الرفع أو الرسالة الجماعية (زر نصي)."""
     user_id = message.from_user.id
     prompt_message_id = None
     context = None # لتحديد القائمة التي يجب العودة إليها
@@ -242,6 +244,17 @@ def handle_back_command(message):
         data = waiting_for_optional_delete.pop(user_id)
         prompt_message_id = data.get("prompt_message_id")
         context = data.get("context")
+    elif user_id in owner_upload_mode: # Handle back from upload mode
+        data = owner_upload_mode.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+        bot.send_message(user_id, "تم إلغاء وضع الرفع.", reply_markup=owner_keyboard()) # Send keyboard immediately for upload mode
+        
+    elif user_id in waiting_for_broadcast: # Handle back from broadcast mode
+        data = waiting_for_broadcast.pop(user_id)
+        prompt_message_id = data.get("prompt_message_id")
+        context = data.get("context")
+        bot.send_message(user_id, "تم إلغاء عملية الرسالة الجماعية.", reply_markup=owner_keyboard()) # Send keyboard immediately for broadcast
 
     # حذف الرسالة السابقة التي تحتوي على السؤال
     if prompt_message_id:
@@ -297,8 +310,8 @@ def handle_delete_choice(message):
     prompt_message_id = data.get("prompt_message_id")
     videos_to_process = data["videos"] # القائمة الأصلية التي عرضناها للمالك
 
-    # إزالة حالة الانتظار فور استلام الإدخال
-    del waiting_for_delete[user_id] 
+    # إزالة حالة الانتظار فور استلام الإدخال (إلا إذا كان الإدخال غير صحيح وسنعيد الطلب)
+    # del waiting_for_delete[user_id] # لا نحذف هنا، نحذف بعد معالجة الإدخال بنجاح أو عند العودة
 
     if prompt_message_id:
         try:
@@ -348,6 +361,7 @@ def handle_delete_choice(message):
                 waiting_for_delete[user_id] = {"category": category, "videos": updated_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
             else:
                 bot.send_message(user_id, f"✅ تم حذف جميع الفيديوهات في قسم فيديوهات{category[-1].upper()}.", reply_markup=owner_keyboard())
+                del waiting_for_delete[user_id] # Remove from waiting state
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
             # إعادة عرض القائمة الأصلية للسماح للمالك بالمحاولة مرة أخرى
@@ -364,6 +378,7 @@ def handle_delete_choice(message):
                 waiting_for_delete[user_id] = {"category": category, "videos": current_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
             else:
                 bot.send_message(user_id, "لا توجد فيديوهات في هذا القسم.", reply_markup=owner_keyboard())
+                del waiting_for_delete[user_id] # Remove from waiting state
 
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
@@ -381,6 +396,7 @@ def handle_delete_choice(message):
             waiting_for_delete[user_id] = {"category": category, "videos": current_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
         else:
             bot.send_message(user_id, "لا توجد فيديوهات في هذا القسم.", reply_markup=owner_keyboard())
+            del waiting_for_delete[user_id] # Remove from waiting state
 
 
 # معالج زر "تنظيف فيديوهات1"
@@ -731,89 +747,129 @@ def handle_owner_response(call):
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v1_button(message):
     """تعيين وضع الرفع لقسم فيديوهات1."""
-    owner_upload_mode[message.from_user.id] = 'v1'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
+    user_id = message.from_user.id
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+    sent_message = bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.\nأرسل 'رجوع' للعودة.", reply_markup=back_markup)
+    owner_upload_mode[user_id] = {'category': 'v1', 'prompt_message_id': sent_message.message_id, 'context': 'owner_main'}
+
 
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v2_button(message):
     """تعيين وضع الرفع لقسم فيديوهات2."""
-    owner_upload_mode[message.from_user.id] = 'v2'
-    bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
-
-# معالج زر تفعيل وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
-def enable_maintenance_button(message):
-    global maintenance_mode
-    maintenance_mode = True
-    bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
-
-# معالج لزر إيقاف وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
-def disable_maintenance_button(message):
-    global maintenance_mode
-    maintenance_mode = False
-    bot.reply_to(message, "✅ تم إيقاف وضع الصيانة لـ فيديوهات2. البوت عاد للعمل في هذا القسم.")
+    user_id = message.from_user.id
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+    sent_message = bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.\nأرسل 'رجوع' للعودة.", reply_markup=back_markup)
+    owner_upload_mode[user_id] = {'category': 'v2', 'prompt_message_id': sent_message.message_id, 'context': 'owner_main'}
 
 @bot.message_handler(content_types=['video'])
 def handle_video_upload(message):
     """معالج لرفع الفيديوهات من قبل المالك."""
     user_id = message.from_user.id
-    mode = owner_upload_mode.get(user_id)
+    mode_data = owner_upload_mode.get(user_id)
 
-    if user_id != OWNER_ID or not mode:
+    if user_id != OWNER_ID or not mode_data:
         return  # تجاهل أي فيديو من غير المالك أو إن لم يحدد القسم
+
+    category = mode_data['category']
+    prompt_message_id = mode_data.get('prompt_message_id')
+
+    # حذف الرسالة السابقة التي تطلب الرفع
+    if prompt_message_id:
+        try:
+            bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+        except Exception as e:
+            print(f"Error deleting prompt message: {e}")
 
     # رفع الفيديو إلى القناة الخاصة
     try:
         sent = bot.send_video(
-            chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
+            chat_id=os.environ.get(f"CHANNEL_ID_{category.upper()}"),
             video=message.video.file_id,
-            caption=f"📥 فيديو جديد من المالك - قسم {mode.upper()}",
+            caption=f"📥 فيديو جديد من المالك - قسم {category.upper()}",
         )
         # تخزين في قاعدة البيانات
-        db[f"videos_{mode}"].insert_one({
+        db[f"videos_{category}"].insert_one({
             "chat_id": sent.chat.id,
             "message_id": sent.message_id
         })
 
-        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        sent_message = bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {category.upper()}.\nيمكنك إرسال فيديو آخر أو أرسل 'رجوع' للعودة.", reply_markup=back_markup)
+        owner_upload_mode[user_id]['prompt_message_id'] = sent_message.message_id # Update prompt message ID
 
     except Exception as e:
         print(f"❌ خطأ في رفع الفيديو: {e}")
-        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.", reply_markup=owner_keyboard())
+        owner_upload_mode.pop(user_id, None) # Clear upload mode on error
+
 
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
     """طلب صورة لرسالة جماعية."""
-    bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
-    waiting_for_broadcast["photo"] = True
+    user_id = message.from_user.id
+    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    back_markup.add(types.KeyboardButton("رجوع"))
+    sent_message = bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.\nأو أرسل 'رجوع' للعودة.", reply_markup=back_markup)
+    waiting_for_broadcast[user_id] = {"photo": True, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
 
 @bot.message_handler(content_types=['photo'])
 def receive_broadcast_photo(message):
     """استقبال الصورة للرسالة الجماعية."""
-    if waiting_for_broadcast.get("photo") and message.from_user.id == OWNER_ID:
-        waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
-        waiting_for_broadcast["photo"] = False
-        waiting_for_broadcast["awaiting_text"] = True
-        bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
+    user_id = message.from_user.id
+    if waiting_for_broadcast.get(user_id) and waiting_for_broadcast[user_id].get("photo") and user_id == OWNER_ID:
+        
+        # Delete previous prompt message
+        prompt_message_id = waiting_for_broadcast[user_id].get("prompt_message_id")
+        if prompt_message_id:
+            try:
+                bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+            except Exception as e:
+                print(f"Error deleting prompt message: {e}")
 
-@bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
+        waiting_for_broadcast[user_id]["photo_file_id"] = message.photo[-1].file_id
+        waiting_for_broadcast[user_id]["photo"] = False
+        waiting_for_broadcast[user_id]["awaiting_text"] = True
+
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        sent_message = bot.send_message(user_id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.\nأو أرسل 'رجوع' للعودة.", reply_markup=back_markup)
+        waiting_for_broadcast[user_id]["prompt_message_id"] = sent_message.message_id # Update prompt message ID
+    else:
+        # If not in broadcast photo waiting state, act as a regular photo handler (if any) or ignore
+        pass
+
+
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_broadcast.get(m.from_user.id) and waiting_for_broadcast[m.from_user.id].get("awaiting_text"))
 def receive_broadcast_text(message):
     """استقبال نص الرسالة الجماعية وإرسالها."""
-    if waiting_for_broadcast.get("awaiting_text"):
-        photo_id = waiting_for_broadcast.get("photo_file_id")
+    user_id = message.from_user.id
+    if waiting_for_broadcast.get(user_id) and waiting_for_broadcast[user_id].get("awaiting_text"):
+        
+        # Delete previous prompt message
+        prompt_message_id = waiting_for_broadcast[user_id].get("prompt_message_id")
+        if prompt_message_id:
+            try:
+                bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+            except Exception as e:
+                print(f"Error deleting prompt message: {e}")
+
+        photo_id = waiting_for_broadcast[user_id].get("photo_file_id")
         text = message.text
         users = get_all_approved_users()
         sent_count = 0
-        for user_id in users:
+        for uid in users: # Renamed loop variable to avoid conflict with user_id
             try:
-                bot.send_photo(user_id, photo_id, caption=text)
+                bot.send_photo(uid, photo_id, caption=text)
                 sent_count += 1
             except Exception as e:
-                print(f"Error sending broadcast to {user_id}: {e}")
+                print(f"Error sending broadcast to {uid}: {e}")
                 pass
-        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
-        waiting_for_broadcast.clear()
+        bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.", reply_markup=owner_keyboard())
+        waiting_for_broadcast.pop(user_id, None) # Clear state for this user
+
 
 # --- NEW: Unified Channel Management for Owner ---
 
@@ -994,10 +1050,15 @@ def handle_add_true_channel_link(message):
         except Exception as e:
             print(f"Error deleting prompt message: {e}")
 
-    if not link.startswith("http") and not link.startswith("t.me"):
+    # Clear the waiting state first, as this handler implies a response (even if invalid)
+    waiting_for_channel_link.pop(user_id) 
+
+    if not (link.startswith("http") or link.startswith("t.me")):
         bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط صحيح (يبدأ بـ http أو t.me).")
-        # إعادة طلب الرابط مع الحفاظ على وضع الانتظار
-        sent_message = bot.send_message(user_id, "أرسل لي رابط القناة التي تريد إضافتها.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add(types.KeyboardButton("رجوع")))
+        # Re-enter waiting state if the link is invalid
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        sent_message = bot.send_message(user_id, "أرسل لي رابط القناة التي تريد إضافتها.", reply_markup=back_markup)
         waiting_for_channel_link[user_id] = {"prompt_message_id": sent_message.message_id, "channel_type": "true", "context": context}
         return
 
@@ -1023,7 +1084,7 @@ def handle_add_true_channel_link(message):
     else: # Fallback to owner_keyboard if context is somehow lost or unexpected
         bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
     
-    waiting_for_channel_link.pop(user_id) # مسح حالة الانتظار بعد المعالجة
+    # waiting_for_channel_link.pop(user_id) # Already popped above
 
 
 # --- معالج جديد لإضافة قنوات الاشتراك الوهمي (فيديوهات1 و فيديوهات2) ---
@@ -1045,11 +1106,16 @@ def handle_add_optional_channel_link(message):
             bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
         except Exception as e:
             print(f"Error deleting prompt message: {e}")
+    
+    # Clear the waiting state first, as this handler implies a response (even if invalid)
+    waiting_for_optional_link.pop(user_id) 
 
-    if not link.startswith("http") and not link.startswith("t.me"):
+    if not (link.startswith("http") or link.startswith("t.me")):
         bot.send_message(user_id, "❌ الرابط غير صالح. يرجى إرسال رابط صحيح (يبدأ بـ http أو t.me).")
-        # إعادة طلب الرابط مع الحفاظ على وضع الانتظار
-        sent_message = bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {category}.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add(types.KeyboardButton("رجوع")))
+        # Re-enter waiting state if the link is invalid
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        sent_message = bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {category}.", reply_markup=back_markup)
         waiting_for_optional_link[user_id] = {"category": category, "prompt_message_id": sent_message.message_id, "context": context}
         return
 
@@ -1085,7 +1151,7 @@ def handle_add_optional_channel_link(message):
     else:
         bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
 
-    waiting_for_optional_link.pop(user_id) # مسح حالة الانتظار بعد المعالجة
+    # waiting_for_optional_link.pop(user_id) # Already popped above
 
 
 # --- معالج جديد لحذف قنوات الاشتراك الإجباري (الحقيقي) ---
@@ -1109,6 +1175,9 @@ def handle_delete_true_channel_choice(message):
             except Exception as e:
                 print(f"Error deleting prompt message: {e}")
 
+        # Clear the waiting state first, unless we re-enter it due to invalid input
+        waiting_for_channel_to_delete.pop(user_id)
+
         if 1 <= choice <= len(channels_to_process):
             channel_to_delete = channels_to_process[choice - 1]
             link = channel_to_delete["link"]
@@ -1120,8 +1189,24 @@ def handle_delete_true_channel_choice(message):
             bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} بنجاح من الاشتراك الإجباري.")
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
+            # Re-enter waiting state if the choice is invalid
+            back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            back_markup.add(types.KeyboardButton("رجوع"))
+            
+            channels = list(true_subscribe_channels_col.find()) # Get current list
+            if channels:
+                text = "📋 قائمة قنوات true:\n"
+                for i, channel in enumerate(channels, 1):
+                    text += f"{i}. {channel['link']}\n"
+                text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
+                sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True)
+                waiting_for_channel_to_delete[user_id] = {"channels": channels, "prompt_message_id": sent_message.message_id, "channel_type": "true", "context": context}
+                return # Exit to prevent going to the next menu immediately
+            else:
+                bot.send_message(user_id, "لا توجد قنوات true لإزالتها.", reply_markup=owner_keyboard())
+
         
-        # العودة إلى القائمة الصحيحة
+        # العودة إلى القائمة الصحيحة (if not re-entered waiting state)
         if context == "true_sub_management":
             markup = types.InlineKeyboardMarkup(row_width=2)
             markup.add(
@@ -1134,10 +1219,23 @@ def handle_delete_true_channel_choice(message):
         else:
             bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
 
-        waiting_for_channel_to_delete.pop(user_id) # مسح حالة الانتظار بعد المعالجة
-
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+        # Re-enter waiting state if the input is invalid
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        
+        channels = list(true_subscribe_channels_col.find()) # Get current list
+        if channels:
+            text = "📋 قائمة قنوات true:\n"
+            for i, channel in enumerate(channels, 1):
+                text += f"{i}. {channel['link']}\n"
+            text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
+            sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True)
+            waiting_for_channel_to_delete[user_id] = {"channels": channels, "prompt_message_id": sent_message.message_id, "channel_type": "true", "context": context}
+            return # Exit to prevent going to the next menu immediately
+        else:
+            bot.send_message(user_id, "لا توجد قنوات true لإزالتها.", reply_markup=owner_keyboard())
 
 
 # --- معالج جديد لحذف قنوات الاشتراك الوهمي (فيديوهات1 و فيديوهات2) ---
@@ -1162,6 +1260,9 @@ def handle_delete_optional_channel_choice(message):
             except Exception as e:
                 print(f"Error deleting prompt message: {e}")
 
+        # Clear the waiting state first, unless we re-enter it due to invalid input
+        waiting_for_optional_delete.pop(user_id)
+
         if 1 <= choice <= len(channels_to_process):
             channel_to_delete = channels_to_process[choice - 1]
             link = channel_to_delete["link"]
@@ -1177,8 +1278,24 @@ def handle_delete_optional_channel_choice(message):
             bot.send_message(user_id, f"✅ تم حذف القناة رقم {choice} بنجاح من قنوات {category}.")
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
+            # Re-enter waiting state if the choice is invalid
+            back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            back_markup.add(types.KeyboardButton("رجوع"))
+            
+            collection = db[f"optional_subscribe_channels_{category}"]
+            channels = list(collection.find()) # Get current list
+            if channels:
+                text = f"📋 قائمة قنوات {category}:\n"
+                for i, channel in enumerate(channels, 1):
+                    text += f"{i}. {channel['link']}\n"
+                text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
+                sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True)
+                waiting_for_optional_delete[user_id] = {"category": category, "channels": channels, "prompt_message_id": sent_message.message_id, "context": context}
+                return # Exit to prevent going to the next menu immediately
+            else:
+                bot.send_message(user_id, f"لا توجد قنوات {category} لإزالتها.", reply_markup=owner_keyboard())
 
-        # العودة إلى القائمة الصحيحة (لوحة مفاتيح إدارة القنوات الوهمية)
+        # العودة إلى القائمة الصحيحة (لوحة مفاتيح إدارة القنوات الوهمية) (if not re-entered waiting state)
         if context == "fake_sub_management":
             markup = types.InlineKeyboardMarkup(row_width=2)
             markup.add(
@@ -1198,10 +1315,24 @@ def handle_delete_optional_channel_choice(message):
         else:
             bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
 
-        waiting_for_optional_delete.pop(user_id) # مسح حالة الانتظار بعد المعالجة
-
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+        # Re-enter waiting state if the input is invalid
+        back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        back_markup.add(types.KeyboardButton("رجوع"))
+        
+        collection = db[f"optional_subscribe_channels_{category}"]
+        channels = list(collection.find()) # Get current list
+        if channels:
+            text = f"📋 قائمة قنوات {category}:\n"
+            for i, channel in enumerate(channels, 1):
+                text += f"{i}. {channel['link']}\n"
+            text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
+            sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True)
+            waiting_for_optional_delete[user_id] = {"category": category, "channels": channels, "prompt_message_id": sent_message.message_id, "context": context}
+            return # Exit to prevent going to the next menu immediately
+        else:
+            bot.send_message(user_id, f"لا توجد قنوات {category} لإزالتها.", reply_markup=owner_keyboard())
 
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
