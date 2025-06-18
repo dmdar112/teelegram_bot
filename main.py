@@ -292,21 +292,26 @@ def handle_delete_choice(message):
         bot.send_message(user_id, "حدث خطأ. يرجى البدء من جديد.", reply_markup=owner_keyboard())
         return
 
+    # استخراج البيانات المطلوبة قبل إزالة حالة الانتظار
+    category = data["category"]
+    prompt_message_id = data.get("prompt_message_id")
+    videos_to_process = data["videos"] # القائمة الأصلية التي عرضناها للمالك
+
+    # إزالة حالة الانتظار فور استلام الإدخال
+    del waiting_for_delete[user_id] 
+
+    if prompt_message_id:
+        try:
+            # حذف الرسالة السابقة التي تطلب الرقم (القائمة الأصلية)
+            bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+        except Exception as e:
+            print(f"Error deleting old prompt message: {e}")
+
     try:
         choice = int(message.text)
-        videos = data["videos"]
-        category = data["category"]
-        prompt_message_id = data.get("prompt_message_id")
 
-        if prompt_message_id:
-            try:
-                # حذف الرسالة السابقة التي تطلب الرقم (القائمة الأصلية)
-                bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
-            except Exception as e:
-                print(f"Error deleting old prompt message: {e}")
-
-        if 1 <= choice <= len(videos):
-            video_to_delete = videos[choice - 1]
+        if 1 <= choice <= len(videos_to_process):
+            video_to_delete = videos_to_process[choice - 1]
             chat_id = video_to_delete["chat_id"]
             message_id = video_to_delete["message_id"]
 
@@ -325,34 +330,58 @@ def handle_delete_choice(message):
 
             bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} بنجاح.")
             
-            # إعادة عرض القائمة المحدثة للفيديوهات في نفس القسم
-            # نستخدم message وهمي لأن الدوال delete_videos_v1/v2 تتوقع كائن message
-            mock_message = types.Message.de_json({"from": {"id": user_id}, "text": f"حذف فيديوهات{category[-1].upper()}"})
-            if category == "v1":
-                delete_videos_v1(mock_message)
-            elif category == "v2":
-                delete_videos_v2(mock_message)
+            # إعادة جلب القائمة المحدثة من قاعدة البيانات
+            updated_videos = list(db_videos_col.find().limit(20))
 
-            # لا نحذف user_id من waiting_for_delete هنا، لأن الدالة المعاودة تقوم بتحديثها.
-            # waiting_for_delete.pop(user_id) # هذا السطر تم حذفه!
-
+            if updated_videos:
+                # إعادة عرض القائمة المحدثة للفيديوهات في نفس القسم
+                text = f"📋 قائمة فيديوهات{category[-1].upper()} المتبقية:\n"
+                for i, vid in enumerate(updated_videos, 1):
+                    text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+                text += "\nأرسل رقم الفيديو التالي الذي تريد حذفه."
+                
+                back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                back_markup.add(types.KeyboardButton("رجوع"))
+                
+                sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
+                # إعادة ضبط حالة الانتظار للقائمة المحدثة
+                waiting_for_delete[user_id] = {"category": category, "videos": updated_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
+            else:
+                bot.send_message(user_id, f"✅ تم حذف جميع الفيديوهات في قسم فيديوهات{category[-1].upper()}.", reply_markup=owner_keyboard())
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
             # إعادة عرض القائمة الأصلية للسماح للمالك بالمحاولة مرة أخرى
-            mock_message = types.Message.de_json({"from": {"id": user_id}, "text": f"حذف فيديوهات{category[-1].upper()}"})
-            if category == "v1":
-                delete_videos_v1(mock_message)
-            elif category == "v2":
-                delete_videos_v2(mock_message)
+            db_videos_col = db[f"videos_{category}"]
+            current_videos = list(db_videos_col.find().limit(20))
+            if current_videos:
+                text = f"📋 قائمة فيديوهات{category[-1].upper()}:\n"
+                for i, vid in enumerate(current_videos, 1):
+                    text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+                text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+                back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                back_markup.add(types.KeyboardButton("رجوع"))
+                sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
+                waiting_for_delete[user_id] = {"category": category, "videos": current_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
+            else:
+                bot.send_message(user_id, "لا توجد فيديوهات في هذا القسم.", reply_markup=owner_keyboard())
 
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
         # إعادة عرض القائمة الأصلية للسماح للمالك بالمحاولة مرة أخرى
-        mock_message = types.Message.de_json({"from": {"id": user_id}, "text": f"حذف فيديوهات{category[-1].upper()}"})
-        if category == "v1":
-            delete_videos_v1(mock_message)
-        elif category == "v2":
-            delete_videos_v2(mock_message)
+        db_videos_col = db[f"videos_{category}"]
+        current_videos = list(db_videos_col.find().limit(20))
+        if current_videos:
+            text = f"📋 قائمة فيديوهات{category[-1].upper()}:\n"
+            for i, vid in enumerate(current_videos, 1):
+                text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+            text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+            back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            back_markup.add(types.KeyboardButton("رجوع"))
+            sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
+            waiting_for_delete[user_id] = {"category": category, "videos": current_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
+        else:
+            bot.send_message(user_id, "لا توجد فيديوهات في هذا القسم.", reply_markup=owner_keyboard())
+
 
 # معالج زر "تنظيف فيديوهات1"
 @bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات1" and m.from_user.id == OWNER_ID)
@@ -1069,7 +1098,7 @@ def handle_delete_true_channel_choice(message):
 
     try:
         choice = int(message.text)
-        channels = data["channels"]
+        channels_to_process = data["channels"]
         prompt_message_id = data.get("prompt_message_id")
         context = data.get("context")
 
@@ -1080,8 +1109,8 @@ def handle_delete_true_channel_choice(message):
             except Exception as e:
                 print(f"Error deleting prompt message: {e}")
 
-        if 1 <= choice <= len(channels):
-            channel_to_delete = channels[choice - 1]
+        if 1 <= choice <= len(channels_to_process):
+            channel_to_delete = channels_to_process[choice - 1]
             link = channel_to_delete["link"]
             
             true_subscribe_channels_col.delete_one({"link": link})
@@ -1121,8 +1150,8 @@ def handle_delete_optional_channel_choice(message):
 
     try:
         choice = int(message.text)
-        channels = data["channels"]
-        category = data["category"]
+        channels_to_process = data["channels"]
+        category = data.get("category")
         prompt_message_id = data.get("prompt_message_id")
         context = data.get("context")
 
@@ -1133,8 +1162,8 @@ def handle_delete_optional_channel_choice(message):
             except Exception as e:
                 print(f"Error deleting prompt message: {e}")
 
-        if 1 <= choice <= len(channels):
-            channel_to_delete = channels[choice - 1]
+        if 1 <= choice <= len(channels_to_process):
+            channel_to_delete = channels_to_process[choice - 1]
             link = channel_to_delete["link"]
             
             collection = db[f"optional_subscribe_channels_{category}"]
@@ -1194,4 +1223,3 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
-
