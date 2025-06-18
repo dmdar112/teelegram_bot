@@ -882,8 +882,23 @@ def manage_all_subscription_channels_menu(message):
         types.InlineKeyboardButton("اشتراك حقيقي إجباري", callback_data="manage_true_sub_channels"),
         types.InlineKeyboardButton("اشتراك وهمي (فيديوهات 1 و 2)", callback_data="manage_fake_sub_channels")
     )
+    # هذا هو زر الرجوع الجديد الذي طلبته
+    markup.add(types.InlineKeyboardButton("رجوع إلى القائمة الرئيسية", callback_data="back_to_owner_main_keyboard"))
     # نرسل رسالة جديدة دائمًا عند الدخول إلى هذه القائمة
     bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_owner_main_keyboard")
+def handle_back_to_owner_main_keyboard(call):
+    """معالج زر 'رجوع إلى القائمة الرئيسية' من قائمة إدارة قنوات الاشتراك الرئيسية."""
+    bot.answer_callback_query(call.id)
+    user_id = call.from_user.id
+    # حذف الرسالة التي تحتوي على الأزرار المضمنة
+    try:
+        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+    except Exception as e:
+        print(f"Error deleting message on back to owner main: {e}")
+    # إرسال لوحة مفاتيح المالك الرئيسية
+    bot.send_message(user_id, "تم الرجوع إلى القائمة الرئيسية للمالك.", reply_markup=owner_keyboard())
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "manage_true_sub_channels")
@@ -936,6 +951,7 @@ def manage_fake_sub_channels(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_main_channel_management")
 def back_to_main_channel_management(call):
+    """معالج زر 'رجوع إلى أقسام الاشتراك الإجباري' الذي يظهر في أقسام إدارة القنوات الفرعية."""
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     
@@ -952,6 +968,7 @@ def back_to_main_channel_management(call):
         types.InlineKeyboardButton("اشتراك حقيقي إجباري", callback_data="manage_true_sub_channels"),
         types.InlineKeyboardButton("اشتراك وهمي (فيديوهات 1 و 2)", callback_data="manage_fake_sub_channels")
     )
+    markup.add(types.InlineKeyboardButton("رجوع إلى القائمة الرئيسية", callback_data="back_to_owner_main_keyboard")) # إضافة زر الرجوع هنا أيضًا
     bot.send_message(user_id, "اختر نوع قنوات الاشتراك التي تريد إدارتها:", reply_markup=markup)
 
 
