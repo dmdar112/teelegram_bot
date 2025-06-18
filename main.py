@@ -282,7 +282,7 @@ def handle_back_command(message):
         bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:", reply_markup=markup)
 
 
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_delete)
 def handle_delete_choice(message):
     """معالج لاختيار الفيديو المراد حذفه من قبل المالك."""
     user_id = message.from_user.id
@@ -380,7 +380,7 @@ def clean_videos_v1_button(message):
     bot.send_message(user_id, f"✅ تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
 # معالج زر "تنظيف فيديوهات2"
-@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" و m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" and m.from_user.id == OWNER_ID)
 def clean_videos_v2_button(message):
     """معالج لزر تنظيف فيديوهات2."""
     user_id = message.from_user.id
@@ -699,27 +699,27 @@ def handle_owner_response(call):
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
 
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" و m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v1_button(message):
     """تعيين وضع الرفع لقسم فيديوهات1."""
     owner_upload_mode[message.from_user.id] = 'v1'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
 
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" و m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
 def set_upload_mode_v2_button(message):
     """تعيين وضع الرفع لقسم فيديوهات2."""
     owner_upload_mode[message.from_user.id] = 'v2'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
 
 # معالج زر تفعيل وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" و m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
 def enable_maintenance_button(message):
     global maintenance_mode
     maintenance_mode = True
     bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
 
 # معالج لزر إيقاف وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" و m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
 def disable_maintenance_button(message):
     global maintenance_mode
     maintenance_mode = False
@@ -753,7 +753,7 @@ def handle_video_upload(message):
         print(f"❌ خطأ في رفع الفيديو: {e}")
         bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
 
-@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" و m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
     """طلب صورة لرسالة جماعية."""
     bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
