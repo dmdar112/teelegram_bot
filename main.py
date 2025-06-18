@@ -166,6 +166,9 @@ def delete_videos_v1(message):
 
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات1.", reply_markup=owner_keyboard())
+        # إزالة حالة الانتظار إذا لم يكن هناك فيديوهات للحذف
+        if user_id in waiting_for_delete:
+            del waiting_for_delete[user_id]
         return
 
     text = "📋 قائمة فيديوهات1:\n"
@@ -191,6 +194,9 @@ def delete_videos_v2(message):
 
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
+        # إزالة حالة الانتظار إذا لم يكن هناك فيديوهات للحذف
+        if user_id in waiting_for_delete:
+            del waiting_for_delete[user_id]
         return
 
     text = "📋 قائمة فيديوهات2:\n"
@@ -282,40 +288,71 @@ def handle_delete_choice(message):
     user_id = message.from_user.id
     data = waiting_for_delete.get(user_id)
     if not data:
+        # إذا لم تكن هناك بيانات انتظار، ربما انتهت الجلسة أو حدث خطأ
+        bot.send_message(user_id, "حدث خطأ. يرجى البدء من جديد.", reply_markup=owner_keyboard())
         return
 
     try:
         choice = int(message.text)
         videos = data["videos"]
         category = data["category"]
+        prompt_message_id = data.get("prompt_message_id")
+
+        if prompt_message_id:
+            try:
+                # حذف الرسالة السابقة التي تطلب الرقم (القائمة الأصلية)
+                bot.delete_message(chat_id=user_id, message_id=prompt_message_id)
+            except Exception as e:
+                print(f"Error deleting old prompt message: {e}")
 
         if 1 <= choice <= len(videos):
             video_to_delete = videos[choice - 1]
             chat_id = video_to_delete["chat_id"]
             message_id = video_to_delete["message_id"]
 
-            # حذف الرسالة التي تطلب الرقم
-            if data.get("prompt_message_id"):
-                try:
-                    bot.delete_message(chat_id=user_id, message_id=data["prompt_message_id"])
-                except Exception as e:
-                    print(f"Error deleting prompt message: {e}")
-
-            # حذف الرسالة من القناة
-            bot.delete_message(chat_id, message_id)
-
+            try:
+                # حذف الرسالة من القناة
+                bot.delete_message(chat_id, message_id)
+            except telebot.apihelper.ApiTelegramException as e:
+                if "message to delete not found" in str(e):
+                    print(f"Warning: Message {message_id} already deleted from channel {chat_id}.")
+                else:
+                    raise e # أعد إثارة أي أخطاء أخرى
+            
             # حذف السجل من قاعدة البيانات
             db_videos_col = db[f"videos_{category}"]
             db_videos_col.delete_one({"message_id": message_id})
 
-            bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} بنجاح.", reply_markup=owner_keyboard())
-            waiting_for_delete.pop(user_id)
+            bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} بنجاح.")
+            
+            # إعادة عرض القائمة المحدثة للفيديوهات في نفس القسم
+            # نستخدم message وهمي لأن الدوال delete_videos_v1/v2 تتوقع كائن message
+            mock_message = types.Message.de_json({"from": {"id": user_id}, "text": f"حذف فيديوهات{category[-1].upper()}"})
+            if category == "v1":
+                delete_videos_v1(mock_message)
+            elif category == "v2":
+                delete_videos_v2(mock_message)
+
+            # لا نحذف user_id من waiting_for_delete هنا، لأن الدالة المعاودة تقوم بتحديثها.
+            # waiting_for_delete.pop(user_id) # هذا السطر تم حذفه!
 
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
+            # إعادة عرض القائمة الأصلية للسماح للمالك بالمحاولة مرة أخرى
+            mock_message = types.Message.de_json({"from": {"id": user_id}, "text": f"حذف فيديوهات{category[-1].upper()}"})
+            if category == "v1":
+                delete_videos_v1(mock_message)
+            elif category == "v2":
+                delete_videos_v2(mock_message)
 
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+        # إعادة عرض القائمة الأصلية للسماح للمالك بالمحاولة مرة أخرى
+        mock_message = types.Message.de_json({"from": {"id": user_id}, "text": f"حذف فيديوهات{category[-1].upper()}"})
+        if category == "v1":
+            delete_videos_v1(mock_message)
+        elif category == "v2":
+            delete_videos_v2(mock_message)
 
 # معالج زر "تنظيف فيديوهات1"
 @bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات1" and m.from_user.id == OWNER_ID)
@@ -343,7 +380,7 @@ def clean_videos_v1_button(message):
     bot.send_message(user_id, f"✅ تم تنظيف فيديوهات1. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
 # معالج زر "تنظيف فيديوهات2"
-@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "تنظيف فيديوهات2" و m.from_user.id == OWNER_ID)
 def clean_videos_v2_button(message):
     """معالج لزر تنظيف فيديوهات2."""
     user_id = message.from_user.id
@@ -662,27 +699,27 @@ def handle_owner_response(call):
         bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
 
 
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" و m.from_user.id == OWNER_ID)
 def set_upload_mode_v1_button(message):
     """تعيين وضع الرفع لقسم فيديوهات1."""
     owner_upload_mode[message.from_user.id] = 'v1'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات1.")
 
-@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "رفع فيديوهات2" و m.from_user.id == OWNER_ID)
 def set_upload_mode_v2_button(message):
     """تعيين وضع الرفع لقسم فيديوهات2."""
     owner_upload_mode[message.from_user.id] = 'v2'
     bot.reply_to(message, "✅ سيتم حفظ الفيديوهات التالية في قسم فيديوهات2.")
 
 # معالج زر تفعيل وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "تفعيل صيانة فيديوهات2" و m.from_user.id == OWNER_ID)
 def enable_maintenance_button(message):
     global maintenance_mode
     maintenance_mode = True
     bot.reply_to(message, "✅ تم تفعيل وضع الصيانة لـ فيديوهات2. البوت الآن في وضع الصيانة لهذا القسم.")
 
 # معالج لزر إيقاف وضع صيانة فيديوهات2
-@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "إيقاف صيانة فيديوهات2" و m.from_user.id == OWNER_ID)
 def disable_maintenance_button(message):
     global maintenance_mode
     maintenance_mode = False
@@ -716,7 +753,7 @@ def handle_video_upload(message):
         print(f"❌ خطأ في رفع الفيديو: {e}")
         bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
 
-@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
+@bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" و m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
     """طلب صورة لرسالة جماعية."""
     bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
@@ -851,7 +888,7 @@ def handle_specific_channel_action(call):
         sent_message = bot.send_message(user_id, f"أرسل لي رابط القناة التي تريد إضافتها لـ {channel_category} (مثال: `https://t.me/CHANNEL_USERNAME` أو رابط دعوة).\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية.", parse_mode="Markdown", reply_markup=back_markup)
         if channel_category == "true":
             waiting_for_channel_link[user_id] = {"prompt_message_id": sent_message.message_id, "channel_type": "true", "context": "true_sub_management"}
-        else: # v1 or v2
+        else: # v1 أو v2
             waiting_for_optional_link[user_id] = {"category": channel_category, "prompt_message_id": sent_message.message_id, "context": "fake_sub_management"}
 
     # Handle "delete channel"
@@ -881,7 +918,7 @@ def handle_specific_channel_action(call):
         text += "\nأرسل رقم القناة التي تريد حذفها.\n\nأو أرسل 'رجوع' للعودة للقائمة الرئيسية."
         
         # إرسال الرسالة وتخزين الـ message_id وسياق العودة
-        sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True) # <<< تم التعديل هنا
+        sent_message = bot.send_message(user_id, text, reply_markup=back_markup, disable_web_page_preview=True) 
 
         if channel_category == "true":
             waiting_for_channel_to_delete[user_id] = {"channels": channels, "prompt_message_id": sent_message.message_id, "channel_type": "true", "context": "true_sub_management"}
@@ -907,7 +944,7 @@ def handle_specific_channel_action(call):
         text = f"📋 قنوات الاشتراك الحالية لـ {channel_category}:\n"
         for i, channel in enumerate(channels, 1):
             text += f"{i}. {channel['link']}\n"
-        bot.send_message(user_id, text, disable_web_page_preview=True) # <<< تم التعديل هنا
+        bot.send_message(user_id, text, disable_web_page_preview=True) 
 
 # --- معالج جديد لإضافة قنوات الاشتراك الإجباري (الحقيقي) ---
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.from_user.id in waiting_for_channel_link)
