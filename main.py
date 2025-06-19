@@ -701,7 +701,7 @@ def verify_subscription_callback(call):
         bot.send_message(
             user_id,
             "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
-            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع" ‼️",
+            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️",
             reply_markup=markup
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category) # إشعار المالك بطلب الموافقة
