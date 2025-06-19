@@ -494,7 +494,7 @@ def check_true_subscription(user_id, first_name):
                         f"📮: {current_channel_link}"
                     )
                     markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
+                    markup.add(types.InlineKeyboardButton("⚠️بعد الاشتراك..اضغط هنا  للمتابعة⚠️", callback_data="check_true_subscription"))
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
                     return # توقف هنا وانتظر تفاعل المستخدم
             else: # رابط دعوة خاص (يبدأ بـ +) - لا يمكن للبوت التحقق منه مباشرة
@@ -572,7 +572,7 @@ def send_start_welcome_message(user_id, first_name):
     # إشعار المالك بالمستخدم الجديد
     if not has_notified(user_id):
         total_users = len(get_all_approved_users())  # حساب إجمالي المستخدمين الموافق عليهم
-        bot.send_message(OWNER_ID, f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
+        bot.send_message(OWNER_ID, f"""⚠️تم دخول شخص جديد إلى البوت⚠️
 
 • الاسم : {first_name}
 • الايدي : {user_id}
@@ -674,7 +674,7 @@ def send_required_links(chat_id, category):
 📬:  {link}
 """
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_{category}_{step}"))
+    markup.add(types.InlineKeyboardButton("⚠️بعد الاشتراك..اضغط هنا  للمتابعة⚠️", callback_data=f"verify_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
     pending_check[chat_id] = {"category": category, "step": step} # حفظ حالة المستخدم الحالية
@@ -696,12 +696,12 @@ def verify_subscription_callback(call):
     else: # إذا أكمل المستخدم جميع القنوات الاختيارية
         markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton("🚸إذا كنت غير مشترك، اشترك الآن🚸", callback_data=f"resend_{category}")
+            types.InlineKeyboardButton("إذا كنت غير مشترك ‼️ اضغط هنا ‼️", callback_data=f"resend_{category}")
         )
         bot.send_message(
             user_id,
             "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
-            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك لا يمكنك استخدام البوت ⚠️",
+            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك استخدام البوت ‼️",
             reply_markup=markup
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category) # إشعار المالك بطلب الموافقة
