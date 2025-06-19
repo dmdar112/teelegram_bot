@@ -114,7 +114,7 @@ def add_notified_user(user_id):
 def main_keyboard():
     """إنشاء لوحة المفاتيح الرئيسية للمستخدم العادي."""
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
-        types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
+        types.KeyboardButton("مقاطع1/🤤🫦🇸🇯"), types.KeyboardButton("مقاطع2/🤤🫦🇺🇸")
     )
 
 def owner_keyboard():
@@ -567,7 +567,7 @@ def handle_start(message):
 
 def send_start_welcome_message(user_id, first_name):
     """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك في القنوات الإجبارية. ترسل رسالة الترحيب وتُشعر المالك."""
-    bot.send_message(user_id, "🫦اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
+    bot.send_message(user_id, "🤤🇺🇸🇸🇯اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
 
     # إشعار المالك بالمستخدم الجديد
     if not has_notified(user_id):
