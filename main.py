@@ -559,8 +559,7 @@ def handle_start(message):
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
         return
 
-    # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
-    bot.send_message(user_id, f"أهلاً بك {first_name}! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(user_id, f"أهلاً بك『🔥{first_name}🇦🇱 』! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
     
     # ✅ هذا هو السطر المنقول إلى المكان الصحيح
     check_true_subscription(user_id, first_name)
