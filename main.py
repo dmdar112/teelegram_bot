@@ -561,23 +561,24 @@ def handle_start(message):
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
     bot.send_message(user_id, f"أهلاً بك {first_name}! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
-check_true_subscription(user_id, first_name)
+    
+    # ✅ هذا هو السطر المنقول إلى المكان الصحيح
+    check_true_subscription(user_id, first_name)
 
 def send_start_welcome_message(user_id, first_name):
     """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك في القنوات الإجبارية. ترسل رسالة الترحيب وتُشعر المالك."""
-    # تأكدنا بالفعل من أن المستخدم ليس المالك في handle_start
     bot.send_message(user_id, "🫦اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
 
     # إشعار المالك بالمستخدم الجديد
     if not has_notified(user_id):
-        total_users = len(get_all_approved_users()) # حساب إجمالي المستخدمين الموافق عليهم
+        total_users = len(get_all_approved_users())  # حساب إجمالي المستخدمين الموافق عليهم
         bot.send_message(OWNER_ID, f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
 
 • الاسم : {first_name}
 • الايدي : {user_id}
 • عدد الأعضاء الكلي: {total_users}
 """)
-        add_notified_user(user_id) # إضافة المستخدم لقائمة من تم إشعار المالك بهم
+        add_notified_user(user_id)  # إضافة المستخدم لقائمة من تم إشعار المالك بهم
 
 # معالج لـ callback_data "check_true_subscription"
 @bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
