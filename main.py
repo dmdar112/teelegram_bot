@@ -483,25 +483,22 @@ def check_true_subscription(user_id, first_name):
             channel_identifier = current_channel_link.split("t.me/")[-1]
             
             # في حال كانت القناة عامة (@username)
-            if not channel_identifier.startswith('+'): # روابط الدعوة الخاصة تبدأ بـ '+'
-                channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
-                member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
-                if not channel_identifier.startswith('+'):  # روابط الدعوة الخاصة تبدأ بـ '+'
+if not channel_identifier.startswith('+'):  # روابط الدعوة الخاصة تبدأ بـ '+'
     channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
     member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
     if member.status not in ['member', 'administrator', 'creator']:
         all_channels_subscribed = False
-        true_sub_pending[user_id] = index
+        true_sub_pending[user_id] = index  # احفظ الخطوة التي توقف عندها
         text = (
             "🚸| عذراً عزيزي .\n"
             "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
             f"- {current_channel_link}\n\n"
             "‼️| اشترك ثم ارسل /start"
         )
-                    markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
-                    bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                    return # توقف هنا وانتظر تفاعل المستخدم
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
+        bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
+        return  # توقف هنا وانتظر تفاعل المستخدم
             else: # رابط دعوة خاص (يبدأ بـ +) - لا يمكن للبوت التحقق منه مباشرة
                 # في هذه الحالة، نفترض أن المستخدم يحتاج للاشتراك ونطلب منه ذلك
                 all_channels_subscribed = False
