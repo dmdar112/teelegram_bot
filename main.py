@@ -494,7 +494,7 @@ def check_true_subscription(user_id, first_name):
                         f"📮: {current_channel_link}"
                     )
                     markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("🟢 بعد الاشتراك، اضغط هنا للمتابعة 🟢", callback_data="check_true_subscription"))
+                    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
                     return # توقف هنا وانتظر تفاعل المستخدم
             else: # رابط دعوة خاص (يبدأ بـ +) - لا يمكن للبوت التحقق منه مباشرة
@@ -560,7 +560,7 @@ def handle_start(message):
         return
 
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
-    bot.send_message(user_id, f"أهلاً بك {first_name}! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(user_id, f"أهلاً بك/🔥 {first_name} 🇦🇱! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
     
     # ✅ هذا هو السطر المنقول إلى المكان الصحيح
     check_true_subscription(user_id, first_name)
@@ -631,7 +631,7 @@ def handle_v2(message):
     # التحقق من وضع الصيانة. المالك يتجاوز وضع الصيانة.
     global maintenance_mode # الوصول للمتغير العام
     if maintenance_mode and user_id != OWNER_ID:
-        bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
+        bot.send_message(user_id, "قريباً سيتم اضافة فيديوهات في زر مقاطع/2‼️")
         return
 
     if user_id in load_approved_users(approved_v2_col): # إذا كان المستخدم موافق عليه لـ فيديوهات2
