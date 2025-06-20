@@ -486,13 +486,18 @@ def check_true_subscription(user_id, first_name):
             if not channel_identifier.startswith('+'): # روابط الدعوة الخاصة تبدأ بـ '+'
                 channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
                 member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
-                if member.status not in ['member', 'administrator', 'creator']:
-                    all_channels_subscribed = False
-                    true_sub_pending[user_id] = index # احفظ الخطوة التي توقف عندها
-                    text = (
-                        "🔔 لطفاً اشترك في القناة التالية واضغط على الزر أدناه للمتابعة:\n"
-                        f"📮: {current_channel_link}"
-                    )
+                if not channel_identifier.startswith('+'):  # روابط الدعوة الخاصة تبدأ بـ '+'
+    channel_username = f"@{channel_identifier}" if not channel_identifier.startswith('@') else channel_identifier
+    member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
+    if member.status not in ['member', 'administrator', 'creator']:
+        all_channels_subscribed = False
+        true_sub_pending[user_id] = index  # احفظ الخطوة التي توقف عندها
+        text = (
+            "🚸| عذراً عزيزي .\n"
+            "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
+            f"- {current_channel_link}\n\n"
+            "‼️| اشترك ثم ارسل /start"
+        )
                     markup = types.InlineKeyboardMarkup()
                     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
@@ -631,7 +636,7 @@ def handle_v2(message):
     # التحقق من وضع الصيانة. المالك يتجاوز وضع الصيانة.
     global maintenance_mode # الوصول للمتغير العام
     if maintenance_mode and user_id != OWNER_ID:
-        bot.send_message(user_id, "قريباً سيتم اضافة فيديوهات في زر مقاطع/2‼️")
+        bot.send_message(user_id, "قريباً سيتم اضافة مقاطع في زر مقاطع/2‼️")
         return
 
     if user_id in load_approved_users(approved_v2_col): # إذا كان المستخدم موافق عليه لـ فيديوهات2
@@ -674,7 +679,7 @@ def send_required_links(chat_id, category):
 📬:  {link}
 """
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🟢 بعد الاشتراك، اضغط هنا للمتابعة 🟢", callback_data=f"verify_{category}_{step}"))
+    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data=f"verify_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
     pending_check[chat_id] = {"category": category, "step": step} # حفظ حالة المستخدم الحالية
