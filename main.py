@@ -493,7 +493,7 @@ def check_true_subscription(user_id, first_name):
                         "🚸| عذراً عزيزي .\n"
                         "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
                         f"- {current_channel_link}\n\n"
-                        "‼️| اشترك ثم اضغط / ⇣الزر أدناه للمتابعة⇣~"
+                        "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
                     )
                     markup = types.InlineKeyboardMarkup()
                     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
@@ -507,7 +507,7 @@ def check_true_subscription(user_id, first_name):
                     "🚸| عذراً عزيزي .\n"
                     "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
                     f"- {current_channel_link}\n\n"
-                    "‼️| اشترك ثم ارسل /start"
+                    "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
                 )
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
@@ -673,10 +673,12 @@ def send_required_links(chat_id, category):
 
     link = links[step] # الحصول على رابط القناة الحالي
 
-    text = f"""- لطفاً اشترك بالقناة واضغط على الزر أدناه للمتابعة .
-- قناة البوت 👾.👇🏻
-📬:  {link}
-"""
+    text = (
+    "🚸| عذراً عزيزي .\n"
+    "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
+    f"- {link}\n\n"
+    "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
+)
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data=f"verify_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
@@ -1415,4 +1417,3 @@ def keep_alive():
 # بدء تشغيل خادم الويب والبوت
 keep_alive()
 bot.infinity_polling()
-
