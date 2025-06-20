@@ -590,7 +590,7 @@ def handle_check_true_subscription_callback(call):
     check_true_subscription(user_id, first_name) # إعادة التحقق
 
 # معالج لزر "فيديوهات1"
-@bot.message_handler(func=lambda m: m.text == "فيديوهات1")
+@bot.message_handler(func=lambda m: m.text == "مقاطع1/🤤🫦🇸🇯")
 def handle_v1(message):
     """معالج لزر فيديوهات1. يتحقق من حالة اشتراك المستخدم ويرسل الفيديوهات أو يطلب الاشتراك الاختياري."""
     user_id = message.from_user.id
@@ -615,7 +615,7 @@ def handle_v1(message):
             send_required_links(user_id, "v1")
 
 # معالج لزر "فيديوهات2"
-@bot.message_handler(func=lambda m: m.text == "فيديوهات2")
+@bot.message_handler(func=lambda m: m.text == "مقاطع2/🤤🫦🇺🇸")
 def handle_v2(message):
     """معالج لزر فيديوهات2. يتحقق من وضع الصيانة، حالة اشتراك المستخدم، ويرسل الفيديوهات أو يطلب الاشتراك الاختياري."""
     user_id = message.from_user.id
