@@ -491,7 +491,7 @@ def check_true_subscription(user_id, first_name):
     member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
     if member.status not in ['member', 'administrator', 'creator']:
         all_channels_subscribed = False
-        true_sub_pending[user_id] = index  # احفظ الخطوة التي توقف عندها
+        true_sub_pending[user_id] = index
         text = (
             "🚸| عذراً عزيزي .\n"
             "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
