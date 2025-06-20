@@ -493,7 +493,7 @@ def check_true_subscription(user_id, first_name):
                         "🚸| عذراً عزيزي .\n"
                         "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
                         f"- {current_channel_link}\n\n"
-                        "‼️| اشترك ثم ارسل /start"
+                        "‼️| اشترك ثم اضغط / ⇣الزر أدناه للمتابعة⇣~"
                     )
                     markup = types.InlineKeyboardMarkup()
                     markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
