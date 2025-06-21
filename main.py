@@ -27,13 +27,11 @@ CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")
 waiting_for_delete = {} # {user_id: {"category": "v1", "videos": videos, "prompt_message_id": message_id, "context": "owner_main"}}
 true_sub_pending = {}  # {user_id: step} - لتتبع تقدم المستخدم في الاشتراك الإجباري الحقيقي
 
-# متغيرات جديدة لإدارة القنوات (القنوات الاختيارية + الإجبارية)
-# الآن ستخزن أيضًا معرف الرسالة للسؤال وسياق العودة لتسهيل التنقل
+# متغيرات لإدارة القنوات (القنوات الاختيارية + الإجبارية)
 waiting_for_channel_link = {} # {user_id: {"prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 waiting_for_channel_to_delete = {} # {user_id: {"channels": channels, "prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 
-# لم يعد يتم استخدام waiting_for_optional_link و waiting_for_optional_delete لـ فيديوهات1
-# سيتم استخدامها فقط لـ فيديوهات2
+# متغيرات لقنوات الاشتراك الاختياري (فيديوهات2 فقط)
 waiting_for_optional_link = {} # {user_id: {"category": category, "prompt_message_id": message_id, "context": "fake_sub_management"}}
 waiting_for_optional_delete = {} # {user_id: {"category": category, "channels": channels, "prompt_message_id": message_id, "context": "fake_sub_management"}}
 
@@ -48,8 +46,13 @@ db = client["telegram_bot_db"] # اسم قاعدة البيانات
 users_col = db["users"] # لتخزين بيانات المستخدمين الأساسية (مثل حالة الانضمام)
 
 # مجموعات لتخزين المستخدمين الموافق عليهم لكل قسم فيديوهات
-approved_v1_col = db["approved_v1"]
-approved_v2_col = db["approved_v2"]
+# approved_v1_col لم تعد تُستخدم للموافقة الديناميكية لـ "مقاطع1"
+approved_v1_col = db["approved_v1"] # قد تُستخدم لأغراض تاريخية أو إحصائية، ولكن لا للتحقق من الوصول بعد الآن
+approved_v2_col = db["approved_v2"] # لا تزال تُستخدم للموافقة الخاصة بـ "مقاطع2"
+
+# مجموعات جديدة لـ "الاشتراك الوهمي" الشامل
+dummy_pending_main_approval_col = db["dummy_pending_main_approval"] # المستخدمون الذين اجتازوا الاشتراك الإجباري وينتظرون موافقة المالك الرئيسية
+approved_main_access_col = db["approved_main_access"] # المستخدمون الذين تمت الموافقة عليهم للوصول الرئيسي الشامل
 
 # لتخزين المستخدمين الذين تم إشعار المالك بهم (لمنع تكرار الإشعارات)
 notified_users_col = db["notified_users"]
@@ -57,9 +60,8 @@ notified_users_col = db["notified_users"]
 # المجموعة لقنوات الاشتراك الإجباري
 true_subscribe_channels_col = db["true_subscribe_channels"]
 
-# مجموعات جديدة لقنوات الاشتراك الاختياري (فيديوهات1 و فيديوهات2)
-# optional_subscribe_channels_v1_col لا تستخدم بعد الآن لتدفق المستخدم، ولكن يمكن الاحتفاظ بها في قاعدة البيانات.
-optional_subscribe_channels_v1_col = db["optional_subscribe_channels_v1"]
+# مجموعات جديدة لقنوات الاشتراك الاختياري (فيديوهات2 فقط)
+optional_subscribe_channels_v1_col = db["optional_subscribe_channels_v1"] # قد تُستخدم لأغراض تاريخية، ولكن لا للتحقق من الوصول بعد الآن
 optional_subscribe_channels_v2_col = db["optional_subscribe_channels_v2"]
 
 
@@ -85,8 +87,7 @@ def load_subscribe_links_v2():
 
 # تحميل القوائم العالمية لقنوات الاشتراك عند بدء البوت لأول مرة
 true_subscribe_links = load_true_subscribe_links()
-# subscribe_links_v1 لم تعد تستخدم في تدفق المستخدم لـ فيديوهات1، ولكن يمكن تركها إذا كانت هناك حاجة لها لأغراض أخرى
-subscribe_links_v1 = load_subscribe_links_v1()
+subscribe_links_v1 = load_subscribe_links_v1() # لا تستخدم لتدفق المستخدم بعد الآن
 subscribe_links_v2 = load_subscribe_links_v2()
 
 # متغيرات إضافية لتتبع حالة البوت
@@ -136,11 +137,13 @@ def owner_keyboard():
     return markup
 
 def get_all_approved_users():
-    """الحصول على جميع المستخدمين الموافق عليهم من كلا القسمين (فيديوهات1 و فيديوهات2)."""
+    """الحصول على جميع المستخدمين الموافق عليهم بشكل رئيسي أو لـ فيديوهات2."""
+    # يجمع المستخدمين الموافق عليهم للوصول الرئيسي (الاشتراك الوهمي الشامل)
+    # والمستخدمين الموافق عليهم بشكل خاص لـ "مقاطع2" (إذا كان هناك تداخل أو فئات منفصلة)
     return set(
-        user["user_id"] for user in approved_v1_col.find()
+        user["user_id"] for user in approved_main_access_col.find()
     ).union(
-        user["user_id"] for user in approved_v2_col.find()
+        user["user_id"] for user in approved_v2_col.find() # للحالات التي قد يكون فيها المستخدم موافق عليه لـ V2 فقط (نادراً الآن)
     )
 
 def send_videos(user_id, category):
@@ -541,7 +544,7 @@ def check_true_subscription(user_id, first_name):
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
 
-        # استدعاء المنطق الفعلي بعد التحقق
+        # استدعاء المنطق الفعلي بعد التحقق - الآن تشغيل عملية "الاشتراك الوهمي" الشامل
         send_start_welcome_message(user_id, first_name)
     else:
         # إذا لم يكن مشتركاً في جميع القنوات بعد (رغم محاولة التحقق الكاملة)، نقوم بتحديث حالة joined إلى False
@@ -565,23 +568,50 @@ def handle_start(message):
     # لكل المستخدمين الآخرين، ابدأ عملية التحقق من الاشتراك الإجباري
     bot.send_message(user_id, f"أهلاً بك/🔥 {first_name} 🇦🇱! يرجى إكمال الاشتراك في القنوات الإجبارية للوصول إلى البوت.", reply_markup=types.ReplyKeyboardRemove())
     
-    # ✅ هذا هو السطر المنقول إلى المكان الصحيح
     check_true_subscription(user_id, first_name)
 
 def send_start_welcome_message(user_id, first_name):
-    """المنطق الفعلي لدالة /start بعد التحقق من الاشتراك في القنوات الإجبارية. ترسل رسالة الترحيب وتُشعر المالك."""
-    bot.send_message(user_id, "🤤🇺🇸🇸🇯اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
-
-    # إشعار المالك بالمستخدم الجديد
-    if not has_notified(user_id):
-        total_users = len(get_all_approved_users())  # حساب إجمالي المستخدمين الموافق عليهم
-        bot.send_message(OWNER_ID, f"""⚠️تم دخول شخص جديد إلى البوت⚠️
-
+    """
+    المنطق الفعلي لدالة /start بعد التحقق من الاشتراك في القنوات الإجبارية.
+    الآن تُشغل عملية "الاشتراك الوهمي" الشامل أو تُظهر لوحة المفاتيح الرئيسية.
+    """
+    # إذا كان المستخدم موافقًا عليه للوصول الرئيسي الشامل
+    if approved_main_access_col.find_one({"user_id": user_id}):
+        bot.send_message(user_id, "🤤🇺🇸🇸🇯اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
+        # إشعار المالك بالمستخدم الجديد (فقط إذا لم يتم إشعاره سابقاً)
+        if not has_notified(user_id):
+            total_users = len(get_all_approved_users())
+            bot.send_message(OWNER_ID, f"""⚠️تم دخول شخص جديد إلى البوت⚠️
 • الاسم : {first_name}
 • الايدي : {user_id}
 • عدد الأعضاء الكلي: {total_users}
 """)
-        add_notified_user(user_id)  # إضافة المستخدم لقائمة من تم إشعار المالك بهم
+            add_notified_user(user_id)
+    else:
+        # المستخدم اجتاز الاشتراك الإجباري ولكنه لم يجتز "الاشتراك الوهمي" الشامل بعد
+        # التحقق مما إذا كان الطلب معلقًا بالفعل
+        if dummy_pending_main_approval_col.find_one({"user_id": user_id}):
+            bot.send_message(user_id, "⚠️ طلب وصولك للمحتوى قيد المراجعة. يرجى الانتظار حتى يقوم المالك بالموافقة.", reply_markup=types.ReplyKeyboardRemove())
+        else:
+            # طلب جديد لـ "الاشتراك الوهمي" الشامل
+            dummy_pending_main_approval_col.insert_one({"user_id": user_id, "first_name": first_name})
+            bot.send_message(user_id, "✅ تم اجتياز الاشتراك الإجباري. الآن يرجى الانتظار حتى تتم مراجعة طلب وصولك للمحتوى من قبل المالك.\n\nسيتم إعلامك فور قبول طلبك.", reply_markup=types.ReplyKeyboardRemove())
+            # إشعار المالك
+            notify_owner_for_main_approval(user_id, first_name)
+
+def notify_owner_for_main_approval(user_id, name):
+    """إرسال إشعار للمالك بطلب الوصول الرئيسي الجديد للمراجعة ("الاشتراك الوهمي" الشامل)."""
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton("✅ قبول الوصول الرئيسي", callback_data=f"approve_main_dummy_{user_id}"),
+        types.InlineKeyboardButton("❌ رفض الوصول الرئيسي", callback_data=f"reject_main_dummy_{user_id}")
+    )
+    message_text = (
+        f"📥 طلب وصول محتوى جديد (اشتراك وهمي شامل)\n"
+        f"👤 الاسم: {name}\n"
+        f"🆔 الآيدي: {user_id}"
+    )
+    bot.send_message(OWNER_ID, message_text, reply_markup=keyboard)
 
 # معالج لـ callback_data "check_true_subscription"
 @bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
@@ -592,26 +622,58 @@ def handle_check_true_subscription_callback(call):
     first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
     check_true_subscription(user_id, first_name) # إعادة التحقق
 
+# معالج لاستجابة المالك (قبول أو رفض) لـ "الاشتراك الوهمي" الشامل
+@bot.callback_query_handler(func=lambda call: call.data.startswith(("approve_main_dummy_", "reject_main_dummy_")))
+def handle_main_dummy_owner_response(call):
+    """معالج لاستجابة المالك (قبول أو رفض) للوصول الرئيسي الشامل."""
+    parts = call.data.split("_")
+    action, _, _, user_id = parts[0], parts[1], parts[2], int(parts[3]) # Example: approve_main_dummy_12345
+
+    if call.from_user.id != OWNER_ID:
+        bot.answer_callback_query(call.id, "🚫 غير مصرح لك بالقيام بهذا الإجراء.")
+        return
+
+    # إزالة من قائمة الطلبات المعلقة أولاً
+    dummy_pending_main_approval_col.delete_one({"user_id": user_id})
+
+    if action == "approve":
+        approved_main_access_col.insert_one({"user_id": user_id}) # منح الوصول الرئيسي الشامل
+        bot.send_message(user_id, "✅ تم قبول طلب وصولك للمحتوى الرئيسي! يمكنك الآن استخدام البوت والاستمتاع بالمقاطع.", reply_markup=main_keyboard())
+        bot.edit_message_text("✅ تم قبول الوصول الرئيسي للمستخدم.", call.message.chat.id, call.message.message_id)
+        # إعادة استدعاء send_start_welcome_message للتأكد من ظهور لوحة المفاتيح الرئيسية وإشعار المالك إذا لم يتم ذلك بالفعل
+        try:
+            user_info = bot.get_chat_member(chat_id=user_id, user_id=user_id).user
+            send_start_welcome_message(user_id, user_info.first_name or "مستخدم")
+        except Exception as e:
+            print(f"Error getting user info or recalling send_start_welcome_message: {e}")
+            # Fallback to sending keyboard directly if user info can't be fetched
+            bot.send_message(user_id, "🤤🇺🇸🇸🇯اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
+
+    else: # action == "reject"
+        # التأكد من إزالة المستخدم من الوصول الرئيسي إذا كان موجوداً
+        approved_main_access_col.delete_one({"user_id": user_id})
+        bot.send_message(user_id, "❌ تم رفض طلب وصولك للمحتوى الرئيسي. يرجى التواصل مع الإدارة للمساعدة.", reply_markup=types.ReplyKeyboardRemove())
+        bot.edit_message_text("❌ تم رفض الوصول الرئيسي للمستخدم.", call.message.chat.id, call.message.message_id)
+
+
 # معالج لزر "مقاطع1"
 @bot.message_handler(func=lambda m: m.text == "مقاطع1/🤤🫦🇸🇯")
 def handle_v1(message):
     """
     معالج لزر مقاطع1.
-    يتحقق من الاشتراك الإجباري، ثم يرسل الفيديوهات بعد الإضافة التلقائية للموافقة.
+    يتحقق من الاشتراك الوهمي الشامل، ثم يرسل الفيديوهات.
     """
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # للمستخدمين العاديين، استمر بالمنطق الحالي
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if not user_data_db or not user_data_db.get("joined", False):
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name) # إعادة توجيه لعملية الاشتراك الإجباري
+    # التحقق مما إذا كان المستخدم لديه وصول رئيسي شامل
+    if not approved_main_access_col.find_one({"user_id": user_id}):
+        bot.send_message(user_id, "⚠️ يجب عليك الحصول على الموافقة الرئيسية أولاً للوصول إلى المحتوى. يرجى الانتظار.", reply_markup=types.ReplyKeyboardRemove())
+        # إعادة توجيه المستخدم لعملية /start لتقييم حالته مرة أخرى
+        handle_start(message)
         return
 
-    # المستخدم قد اجتاز الاشتراك الإجباري. الآن يتم منحه الوصول مباشرة لـ مقاطع1.
-    # يتم إضافة المستخدم إلى قائمة الموافق عليهم لـ فيديوهات1 تلقائيًا وفورًا.
-    add_approved_user(approved_v1_col, user_id)
+    # إذا كان الوصول الرئيسي موافق عليه، أرسل فيديوهات V1 مباشرة
     send_videos(user_id, "v1")
 
 
@@ -622,20 +684,20 @@ def handle_v2(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "مستخدم"
 
-    # للمستخدمين العاديين، استمر بالمنطق الحالي
-    user_data_db = users_col.find_one({"user_id": user_id})
-    if not user_data_db or not user_data_db.get("joined", False):
-        bot.send_message(user_id, "⚠️ يجب عليك إكمال الاشتراك في القنوات الإجبارية أولاً. اضغط /start للمتابعة.", reply_markup=types.ReplyKeyboardRemove())
-        check_true_subscription(user_id, first_name)
+    # التحقق مما إذا كان المستخدم لديه وصول رئيسي شامل أولاً
+    if not approved_main_access_col.find_one({"user_id": user_id}):
+        bot.send_message(user_id, "⚠️ يجب عليك الحصول على الموافقة الرئيسية أولاً للوصول إلى المحتوى. يرجى الانتظار.", reply_markup=types.ReplyKeyboardRemove())
+        # إعادة توجيه المستخدم لعملية /start لتقييم حالته مرة أخرى
+        handle_start(message)
         return
 
-    # التحقق من وضع الصيانة. المالك يتجاوز وضع الصيانة.
+    # إذا كان الوصول الرئيسي موافق عليه، استمر في التحقق من وضع الصيانة والاشتراك الوهمي الخاص بـ V2
     global maintenance_mode # الوصول للمتغير العام
     if maintenance_mode and user_id != OWNER_ID:
         bot.send_message(user_id, "قريباً سيتم اضافة مقاطع في زر مقاطع/2‼️")
         return
 
-    if user_id in load_approved_users(approved_v2_col): # إذا كان المستخدم موافق عليه لـ فيديوهات2
+    if approved_v2_col.find_one({"user_id": user_id}): # إذا كان المستخدم موافق عليه لـ فيديوهات2
         send_videos(user_id, "v2")
     else:
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
@@ -653,8 +715,7 @@ def send_required_links(chat_id, category):
     """
     if category == "v1":
         # هذا الفرع لن يتم الوصول إليه بعد الآن بسبب التغييرات في handle_v1
-        # ولكن نتركه كاحتياط أو لتوضيح أن v1 لم تعد تستخدم هنا
-        notify_owner_for_approval(chat_id, "مستخدم", category)
+        notify_owner_for_approval(chat_id, "مستخدم", category) # قد لا تكون هناك حاجة لإشعار المالك لـ V1 بعد الآن
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً لهذا القسم). الرجاء الانتظار.", reply_markup=main_keyboard())
         pending_check.pop(chat_id, None)
         return
@@ -707,8 +768,6 @@ def verify_subscription_callback(call):
 
     if category == "v1":
         # هذا الفرع لن يتم الوصول إليه بعد الآن
-        # بدلاً من ذلك، ستقوم handle_v1 بتسجيل الدخول مباشرة
-        # وهذا القسم لن يتم استدعاؤه لـ "v1" بعد التغيير.
         return
 
     links = load_subscribe_links_v2() # فقط لقنوات v2
@@ -752,7 +811,10 @@ def resend_links(call):
 
 def notify_owner_for_approval(user_id, name, category):
     """إرسال إشعار للمالك بطلب انضمام جديد لمراجعتها (لقبول أو رفض الوصول)."""
-    # هذا الإشعار سيظل يُرسل لـ فيديوهات2، ولكن ليس لـ فيديوهات1 بعد الآن.
+    # هذا الإشعار سيظل يُرسل لـ فيديوهات2 فقط، لأن فيديوهات1 أصبحت تعتمد على الموافقة الرئيسية الشاملة.
+    if category != "v2": # التأكد أنه يتم استدعاؤه فقط لـ V2 (أو إذا كان هناك فئات مستقبلية تتطلب هذا النوع من الإشعار)
+        return
+
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
         types.InlineKeyboardButton("✅ قبول المستخدم", callback_data=f"approve_{category}_{user_id}"),
@@ -778,20 +840,22 @@ def handle_owner_response(call):
         bot.answer_callback_query(call.id, "🚫 غير مصرح لك بالقيام بهذا الإجراء.")
         return
 
+    # هذا المعالج يجب أن يتعامل الآن فقط مع موافقات/رفض "مقاطع2"
+    if category == "v1":
+        # هذا لن يحدث بعد الآن لأن V1 يعتمد على الموافقة الرئيسية
+        bot.send_message(call.message.chat.id, "خطأ: هذا الإجراء غير مدعوم لـ فيديوهات1.")
+        bot.edit_message_text("تم معالجة الإجراء (خطأ).", call.message.chat.id, call.message.message_id)
+        return
+    
+    # استمر فقط لـ category == "v2"
     if action == "approve":
-        # هذا الشرط لا ينبغي أن يتم الوصول إليه لـ فيديوهات1 بعد الآن
-        # لأن فيديوهات1 أصبحت توافق تلقائيًا في handle_v1
-        if category == "v1":
-            add_approved_user(approved_v1_col, user_id)
-        else: # category == "v2"
-            add_approved_user(approved_v2_col, user_id)
-        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
-        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id) # تعديل رسالة الإشعار للمالك
+        add_approved_user(approved_v2_col, user_id)
+        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة لـ فيديوهات2! يمكنك الآن الوصول للمقاطع.")
+        bot.edit_message_text("✅ تم قبول المستخدم لـ فيديوهات2.", call.message.chat.id, call.message.message_id) # تعديل رسالة الإشعار للمالك
     else: # action == "reject"
-        # يمكنك إضافة منطق لحذف المستخدم من "approved_v1_col" أو "approved_v2_col" إذا كان موجوداً
-        # أو فقط إرسال رسالة الرفض
-        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id) # تعديل رسالة الإشعار للمالك
+        remove_approved_user(approved_v2_col, user_id) # إزالة إذا كان قد تم قبوله سابقاً بالخطأ
+        bot.send_message(user_id, "❌ لم يتم قبولك لـ فيديوهات2. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
+        bot.edit_message_text("❌ تم رفض المستخدم لـ فيديوهات2.", call.message.chat.id, call.message.message_id) # تعديل رسالة الإشعار للمالك
 
 # معالج لزر "رفع فيديوهات1" (خاص بالمالك)
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
