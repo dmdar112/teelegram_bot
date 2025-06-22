@@ -33,7 +33,7 @@ waiting_for_channel_link = {} # {user_id: {"prompt_message_id": message_id, "cha
 waiting_for_channel_to_delete = {} # {user_id: {"channels": channels, "prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 
 # لم يعد يتم استخدام waiting_for_optional_link و waiting_for_optional_delete لـ فيديوهات1
-# سيتم استخدامها فقط لـ فيديوهات2
+# سيتم استخدامها فقط لـ فيديوهات2 والاشتراك الوهمي العام
 waiting_for_optional_link = {} # {user_id: {"category": category, "prompt_message_id": message_id, "context": "fake_sub_management"}}
 waiting_for_optional_delete = {} # {user_id: {"category": category, "channels": channels, "prompt_message_id": message_id, "context": "fake_sub_management"}}
 
@@ -724,7 +724,9 @@ def handle_check_true_subscription_callback(call):
     """معالج لزر "لقد اشتركت، اضغط هنا للمتابعة" بعد الاشتراك الإجباري."""
     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...") # إشعار للمستخدم بأن التحقق جارٍ
     user_id = call.from_user.id
-    first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
+    # يجب جلب اسم المستخدم الأصلي من قاعدة البيانات، لأن call.from_user هو من ضغط على الزر (المالك نفسه في بعض السيناريوهات)
+    user_data = users_col.find_one({"user_id": user_id})
+    first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
     check_true_subscription(user_id, first_name) # إعادة التحقق
 
 # معالج لـ callback_data "check_global_fake_subscription"
@@ -733,7 +735,9 @@ def handle_check_global_fake_subscription_callback(call):
     """معالج لزر "لقد اشتركت، اضغط هنا للمتابعة" بعد الاشتراك الوهمي العام."""
     bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك الوهمي العام...")
     user_id = call.from_user.id
-    first_name = call.from_user.first_name or "مستخدم"
+    # يجب جلب اسم المستخدم الأصلي من قاعدة البيانات
+    user_data = users_col.find_one({"user_id": user_id})
+    first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
     check_global_fake_subscription(user_id, first_name)
 
 
@@ -811,7 +815,10 @@ def send_required_links(chat_id, category):
     if category == "v1":
         # هذا الفرع لن يتم الوصول إليه بعد الآن بسبب التغييرات في handle_v1
         # ولكن نتركه كاحتياط أو لتوضيح أن v1 لم تعد تستخدم هنا
-        notify_owner_for_approval(chat_id, "مستخدم", category)
+        # يجب جلب اسم المستخدم الأصلي من قاعدة البيانات
+        user_data = users_col.find_one({"user_id": chat_id})
+        first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
+        notify_owner_for_approval(chat_id, first_name, category)
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً لهذا القسم). الرجاء الانتظار.", reply_markup=main_keyboard_with_videos())
         pending_check.pop(chat_id, None)
         return
@@ -824,13 +831,19 @@ def send_required_links(chat_id, category):
     links = subscribe_links_v2 # الآن فقط لقنوات v2
 
     if not links: # إذا لم تكن هناك قنوات اشتراك اختيارية معرفة لهذا القسم
-        notify_owner_for_approval(chat_id, "مستخدم", category)
+        # يجب جلب اسم المستخدم الأصلي من قاعدة البيانات
+        user_data = users_col.find_one({"user_id": chat_id})
+        first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
+        notify_owner_for_approval(chat_id, first_name, category)
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً لهذا القسم). الرجاء الانتظار.", reply_markup=main_keyboard_with_videos())
         pending_check.pop(chat_id, None) # إزالة من حالة الانتظار
         return
 
     if step >= len(links): # إذا أكمل المستخدم جميع القنوات
-        notify_owner_for_approval(chat_id, "مستخدم", category)
+        # يجب جلب اسم المستخدم الأصلي من قاعدة البيانات
+        user_data = users_col.find_one({"user_id": chat_id})
+        first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
+        notify_owner_for_approval(chat_id, first_name, category)
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard_with_videos())
         pending_check.pop(chat_id, None)
         return
@@ -884,7 +897,10 @@ def verify_subscription_callback(call):
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️",
             reply_markup=markup
         )
-        notify_owner_for_approval(user_id, call.from_user.first_name, category) # إشعار المالك بطلب الموافقة
+        # يجب جلب اسم المستخدم الأصلي من قاعدة البيانات
+        user_data = users_col.find_one({"user_id": user_id})
+        first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
+        notify_owner_for_approval(user_id, first_name, category) # إشعار المالك بطلب الموافقة
         pending_check.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
 
 # إعادة إرسال روابط الاشتراك عند طلب المستخدم (إذا لم يكملها)
@@ -965,6 +981,11 @@ def handle_owner_response(call):
 
     bot.answer_callback_query(call.id, f"تم {action} الطلب.") # إشعار للكول باك
 
+    # استرداد اسم المستخدم الأصلي من قاعدة البيانات
+    user_data = users_col.find_one({"user_id": user_id})
+    original_user_first_name = user_data.get("first_name", "مستخدم") if user_data else "مستخدم"
+
+
     if approval_type == "global_dummy":
         if action == "approve":
             add_approved_user(approved_global_dummy_sub_col, user_id)
@@ -972,8 +993,7 @@ def handle_owner_response(call):
             if user_id in global_fake_sub_pending:
                 del global_fake_sub_pending[user_id]
             
-            first_name = call.from_user.first_name or "مستخدم" # الحصول على الاسم
-            send_start_welcome_message(user_id, first_name, show_videos=True) # عرض أزرار الفيديو
+            send_start_welcome_message(user_id, original_user_first_name, show_videos=True) # عرض أزرار الفيديو
             bot.send_message(user_id, "✅ تم قبول اشتراكك الوهمي العام! يمكنك الآن الوصول للمقاطع.")
             bot.edit_message_text("✅ تم قبول المستخدم للاشتراك الوهمي العام.", call.message.chat.id, call.message.message_id)
         else: # reject
@@ -981,9 +1001,8 @@ def handle_owner_response(call):
             if user_id in global_fake_sub_pending:
                 del global_fake_sub_pending[user_id] # مسح التقدم لإعادة البدء
             
-            first_name = call.from_user.first_name or "مستخدم" # الحصول على الاسم
             bot.send_message(user_id, "❌ لم يتم قبول اشتراكك الوهمي العام. يرجى المحاولة مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
-            check_global_fake_subscription(user_id, first_name) # يدفع المستخدم لإعادة إكمال القنوات أو انتظار الموافقة
+            check_global_fake_subscription(user_id, original_user_first_name) # يدفع المستخدم لإعادة إكمال القنوات أو انتظار الموافقة
             bot.edit_message_text("❌ تم رفض المستخدم للاشتراك الوهمي العام.", call.message.chat.id, call.message.message_id)
 
     elif approval_type == "v2": # هذا هو الموافقة الخاصة بـ فيديوهات2 الموجودة مسبقًا
@@ -1131,6 +1150,34 @@ def receive_broadcast_text(message):
 
 # --- إدارة القنوات الموحدة للمالك ---
 
+# دالة مساعدة لإنشاء قائمة InlineKeyboardMarkup لقنوات الاشتراك الوهمي (فيديوهات2 فقط الآن)
+def create_fake_sub_channels_markup():
+    """تنشئ لوحة مفاتيح InlineKeyboardMarkup لقنوات الاشتراك الوهمي (فيديوهات2 فقط)."""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
+    )
+    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+    return markup
+
+# دالة مساعدة لإنشاء قائمة InlineKeyboardMarkup لقنوات الاشتراك الوهمي العام
+def create_global_fake_sub_channels_markup():
+    """تنشئ لوحة مفاتيح InlineKeyboardMarkup لقنوات الاشتراك الوهمي العام."""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("➕ إضافة قناة (وهمي عام)", callback_data="add_channel_global_fake"),
+        types.InlineKeyboardButton("🗑️ حذف قناة (وهمي عام)", callback_data="delete_channel_global_fake"),
+        types.InlineKeyboardButton("📺 عرض القنوات (وهمي عام)", callback_data="view_channels_global_fake")
+    )
+    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+    return markup
+
 # معالج لزر "إدارة قنوات الاشتراك" (الرئيسي للمالك)
 @bot.message_handler(func=lambda m: m.text == "إدارة قنوات الاشتراك" and m.from_user.id == OWNER_ID)
 def manage_all_subscription_channels_menu(message):
@@ -1182,13 +1229,7 @@ def manage_global_fake_sub_channels(call):
     """يعرض خيارات إدارة قنوات الاشتراك الوهمي العام (إضافة، حذف، عرض)."""
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("➕ إضافة قناة (وهمي عام)", callback_data="add_channel_global_fake"),
-        types.InlineKeyboardButton("🗑️ حذف قناة (وهمي عام)", callback_data="delete_channel_global_fake"),
-        types.InlineKeyboardButton("📺 عرض القنوات (وهمي عام)", callback_data="view_channels_global_fake")
-    )
-    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+    markup = create_global_fake_sub_channels_markup() # استخدام الدالة المساعدة
     bot.edit_message_text("أنت الآن في قسم إدارة قنوات الاشتراك الوهمي العام. اختر إجراءً:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
 
@@ -1201,26 +1242,7 @@ def manage_fake_sub_channels(call):
     """
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
-    markup = types.InlineKeyboardMarkup(row_width=2)
-
-    # صف 1: إضافة فيديوهات2 فقط (تمت إزالة فيديوهات1)
-    markup.add(
-        types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2")
-    )
-
-    # صف 2: حذف فيديوهات2 فقط (تمت إزالة فيديوهات1)
-    markup.add(
-        types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2")
-    )
-
-    # صف 3: عرض قنوات فيديوهات2 فقط (تمت إزالة فيديوهات1)
-    markup.add(
-        types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2")
-    )
-
-    # زر العودة إلى القائمة الرئيسية لإدارة القنوات
-    markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
-
+    markup = create_fake_sub_channels_markup() # استخدام الدالة المساعدة
     bot.edit_message_text(
         "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي (فيديوهات2). اختر إجراءً:", # تم تعديل النص
         chat_id=call.message.chat.id,
@@ -1420,14 +1442,7 @@ def handle_add_optional_channel_link(message):
         # مسح حالة الانتظار
         waiting_for_optional_link.pop(user_id)
         # العودة إلى قائمة إدارة القنوات الوهمية
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(types.InlineKeyboardButton("➕ إضافة قناة (وهمي عام)", callback_data="add_channel_global_fake"))
-        markup.add(types.InlineKeyboardButton("🗑️ حذف قناة (وهمي عام)", callback_data="delete_channel_global_fake"))
-        markup.add(types.InlineKeyboardButton("📺 عرض القنوات (وهمي عام)", callback_data="view_channels_global_fake"))
-        markup.add(types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2"))
-        markup.add(types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2"))
-        markup.add(types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2"))
-        markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        markup = create_fake_sub_channels_markup() # استخدام الدالة المساعدة
         bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي (فيديوهات2). اختر إجراءً:", reply_markup=markup)
         return
 
@@ -1475,21 +1490,10 @@ def handle_add_optional_channel_link(message):
     
     # العودة إلى القائمة الصحيحة (لوحة مفاتيح إدارة القنوات الوهمية)
     if context == "fake_sub_management":
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        # أزرار فيديوهات1 محذوفة
-        markup.add(types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2"))
-        markup.add(types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2"))
-        markup.add(types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2"))
-        markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        markup = create_fake_sub_channels_markup() # استخدام الدالة المساعدة
         bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي (فيديوهات2). اختر إجراءً:", reply_markup=markup)
     elif context == "global_fake_sub_management": # جديد
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("➕ إضافة قناة (وهمي عام)", callback_data="add_channel_global_fake"),
-            types.InlineKeyboardButton("🗑️ حذف قناة (وهمي عام)", callback_data="delete_channel_global_fake"),
-            types.InlineKeyboardButton("📺 عرض القنوات (وهمي عام)", callback_data="view_channels_global_fake")
-        )
-        markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+        markup = create_global_fake_sub_channels_markup() # استخدام الدالة المساعدة
         bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي العام. اختر إجراءً:", reply_markup=markup)
     else:
         bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
@@ -1604,14 +1608,7 @@ def handle_delete_optional_channel_choice(message):
             # مسح حالة الانتظار
             waiting_for_optional_delete.pop(user_id)
             # العودة إلى قائمة إدارة القنوات الوهمية
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            markup.add(types.InlineKeyboardButton("➕ إضافة قناة (وهمي عام)", callback_data="add_channel_global_fake"))
-            markup.add(types.InlineKeyboardButton("🗑️ حذف قناة (وهمي عام)", callback_data="delete_channel_global_fake"))
-            markup.add(types.InlineKeyboardButton("📺 عرض القنوات (وهمي عام)", callback_data="view_channels_global_fake"))
-            markup.add(types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2"))
-            markup.add(types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2"))
-            markup.add(types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2"))
-            markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+            markup = create_fake_sub_channels_markup() # استخدام الدالة المساعدة
             bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي (فيديوهات2). اختر إجراءً:", reply_markup=markup)
             return
 
@@ -1676,21 +1673,10 @@ def handle_delete_optional_channel_choice(message):
 
         # العودة إلى القائمة الصحيحة (لوحة مفاتيح إدارة القنوات الوهمية) (إذا لم نعد ندخل في حالة الانتظار)
         if context == "fake_sub_management":
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            # أزرار فيديوهات1 محذوفة
-            markup.add(types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2"))
-            markup.add(types.InlineKeyboardButton("🗑️ حذف قناة (فيديوهات2)", callback_data="delete_channel_v2"))
-            markup.add(types.InlineKeyboardButton("📺 عرض القنوات (فيديوهات2)", callback_data="view_channels_v2"))
-            markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+            markup = create_fake_sub_channels_markup() # استخدام الدالة المساعدة
             bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي (فيديوهات2). اختر إجراءً:", reply_markup=markup)
         elif context == "global_fake_sub_management": # جديد
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            markup.add(
-                types.InlineKeyboardButton("➕ إضافة قناة (وهمي عام)", callback_data="add_channel_global_fake"),
-                types.InlineKeyboardButton("🗑️ حذف قناة (وهمي عام)", callback_data="delete_channel_global_fake"),
-                types.InlineKeyboardButton("📺 عرض القنوات (وهمي عام)", callback_data="view_channels_global_fake")
-            )
-            markup.add(types.InlineKeyboardButton("🔙 رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
+            markup = create_global_fake_sub_channels_markup() # استخدام الدالة المساعدة
             bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي العام. اختر إجراءً:", reply_markup=markup)
         else:
             bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
@@ -1757,3 +1743,4 @@ def keep_alive():
 # بدء تشغيل خادم الويب والبوت
 keep_alive()
 bot.infinity_polling()
+
