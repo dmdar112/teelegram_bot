@@ -547,16 +547,62 @@ def check_true_subscription(user_id, first_name):
 
         # إضافة تأخير قبل بدء الاشتراك الوهمي
         time.sleep(1)
-        # بدء عملية الاشتراك الوهمي (فيديوهات1) بعد الانتهاء من الإجباري
-        bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
-        fake_sub_pending[user_id] = {"category": "v1", "step": 0} # نبدأ من الخطوة 0
-        send_required_links_fake(user_id, "v1")
+        
+        # بدء عملية الاشتراك الوهمي بعد الانتهاء من الإجباري
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("اضغط هنا للاشتراك الوهمي", callback_data="start_fake_subscription"))
+        bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الرجاء الضغط على الزر أدناه لبدء الاشتراك الوهمي:", reply_markup=markup)
     else:
         # إذا لم يكن مشتركاً في جميع القنوات بعد (رغم محاولة التحقق الكاملة)، نقوم بتحديث حالة joined إلى False
         user_data_db = users_col.find_one({"user_id": user_id})
         if user_data_db and user_data_db.get("joined", False):
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": False}})
 
+# معالج لزر "اضغط هنا للاشتراك الوهمي"
+@bot.callback_query_handler(func=lambda call: call.data == "start_fake_subscription")
+def handle_start_fake_subscription(call):
+    """معالج لزر بدء الاشتراك الوهمي بعد إكمال الاشتراك الإجباري."""
+    user_id = call.from_user.id
+    bot.answer_callback_query(call.id)
+    fake_sub_pending[user_id] = {"category": "v1", "step": 0}
+    send_required_links_fake(user_id, "v1")
+
+def send_required_links_fake(chat_id, category):
+    """إرسال روابط الاشتراك الوهمي المطلوبة للمستخدم بشكل متسلسل."""
+    global subscribe_links_v1
+    subscribe_links_v1 = load_subscribe_links_v1() # إعادة تحميل لضمان التحديث
+
+    data = fake_sub_pending.get(chat_id, {"category": category, "step": 0})
+    step = data["step"]
+    links = subscribe_links_v1
+
+    if not links: # إذا لم تكن هناك قنوات اشتراك وهمية معرفة
+        notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
+        bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً). الرجاء الانتظار.", reply_markup=main_keyboard())
+        if chat_id in fake_sub_pending:
+            del fake_sub_pending[chat_id]
+        return
+
+    if step >= len(links): # إذا أكمل المستخدم جميع القنوات
+        notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
+        bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
+        if chat_id in fake_sub_pending:
+            del fake_sub_pending[chat_id]
+        return
+
+    link = links[step] # الحصول على رابط القناة الحالي
+
+    text = (
+        "🚸| عذراً عزيزي .\n"
+        "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
+        f"- {link}\n\n"
+        "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data=f"verify_fake_{category}_{step}"))
+    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
+
+    fake_sub_pending[chat_id] = {"category": category, "step": step} # حفظ حالة المستخدم الحالية
 
 # معالج لأمر /start
 @bot.message_handler(commands=['start'])
@@ -658,43 +704,6 @@ def handle_v2(message):
         else:
             pending_check[user_id] = {"category": "v2", "step": 0}
             send_required_links(user_id, "v2")
-
-def send_required_links_fake(chat_id, category):
-    """إرسال روابط الاشتراك الوهمي المطلوبة للمستخدم بشكل متسلسل."""
-    global subscribe_links_v1
-    subscribe_links_v1 = load_subscribe_links_v1() # إعادة تحميل لضمان التحديث
-
-    data = fake_sub_pending.get(chat_id, {"category": category, "step": 0})
-    step = data["step"]
-    links = subscribe_links_v1
-
-    if not links: # إذا لم تكن هناك قنوات اشتراك وهمية معرفة
-        notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
-        bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً). الرجاء الانتظار.", reply_markup=main_keyboard())
-        if chat_id in fake_sub_pending:
-            del fake_sub_pending[chat_id]
-        return
-
-    if step >= len(links): # إذا أكمل المستخدم جميع القنوات
-        notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
-        bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
-        if chat_id in fake_sub_pending:
-            del fake_sub_pending[chat_id]
-        return
-
-    link = links[step] # الحصول على رابط القناة الحالي
-
-    text = (
-        "🚸| عذراً عزيزي .\n"
-        "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
-        f"- {link}\n\n"
-        "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
-    )
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data=f"verify_fake_{category}_{step}"))
-    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
-
-    fake_sub_pending[chat_id] = {"category": category, "step": step} # حفظ حالة المستخدم الحالية
 
 def send_required_links(chat_id, category):
     """إرسال روابط الاشتراك الاختياري المطلوبة للمستخدم بشكل متسلسل."""
