@@ -690,7 +690,7 @@ def send_required_links_fake(chat_id, category):
         "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
     )
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data=f"verify_fake_{category}_{step}"))
+        markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data=f"verify_fake_{category}_{step}"))
     bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
 
     fake_sub_pending[chat_id] = {"category": category, "step": step} # حفظ حالة المستخدم الحالية
