@@ -766,6 +766,8 @@ def verify_subscription_callback(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_fake_"))
 def verify_fake_subscription_callback(call):
     """معالج للتحقق من الاشتراك الوهمي عبر الأزرار. ينقل المستخدم للقناة التالية أو يطلب الموافقة."""
+    # ✅ أضف هذا السطر هنا بالضبط (السطر 773 في الكود الذي أرسلته):
+    print(f"DEBUG: Received fake subscription callback. User ID: {call.from_user.id}, Data: {call.data}")
     bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
 
     user_id = call.from_user.id
