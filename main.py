@@ -465,12 +465,26 @@ def check_true_subscription(user_id, first_name):
     global true_subscribe_links # تأكد من استخدام أحدث قائمة
     true_subscribe_links = load_true_subscribe_links() # إعادة تحميل القائمة في كل مرة للتحقق من التحديثات
 
-    if not true_subscribe_links: # إذا لم تكن هناك قنوات اشتراك إجباري معرفة
+    # <--- أضف هذه الأسطر هنا --->
+    # عند بدء عملية التحقق، تأكد من مسح أي معرف رسالة سابقة للحذف لهذا المستخدم
+    # لتجنب حذف رسالة خاطئة أو تداخل الجلسات
+    if user_id in fake_sub_pending and "message_to_delete_id" in fake_sub_pending[user_id]:
+        try:
+            bot.delete_message(chat_id=user_id, message_id=fake_sub_pending[user_id]["message_to_delete_id"])
+        except Exception as e:
+            print(f"Error cleaning up old fake_sub_pending message_to_delete_id: {e}")
+        finally:
+            del fake_sub_pending[user_id]["message_to_delete_id"]
+    # <--- نهاية الإضافة --->
+
+        if not true_subscribe_links: # إذا لم تكن هناك قنوات اشتراك إجباري معرفة
         # بدلاً من إرسال رسالة البدء مباشرة، نبدأ الاشتراك الوهمي
         # لأننا نريد أن يمر المستخدم بالاشتراك الوهمي حتى لو لم يكن هناك اشتراك إجباري
         # لكن في هذه الحالة نبدأ الاشتراك الوهمي مباشرة
-        bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
-        fake_sub_pending[user_id] = {"category": "v1", "step": 0}
+        # هنا نحفظ الرسالة التي تم إرسالها
+        sent_message = bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
+        # هنا نخزن رقم الرسالة (message_id) في القاموس fake_sub_pending
+        fake_sub_pending[user_id] = {"category": "v1", "step": 0, "message_to_delete_id": sent_message.message_id}
         send_required_links_fake(user_id, "v1")
         return
 
@@ -537,10 +551,11 @@ def check_true_subscription(user_id, first_name):
             return # توقف هنا
 
     # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
+        # إذا وصل الكود إلى هنا، فهذا يعني أن المستخدم مشترك في جميع القنوات بنجاح
     if all_channels_subscribed:
         if user_id in true_sub_pending:
             del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
-        
+
         # تحديث حالة الاشتراك في قاعدة البيانات
         user_data_db = users_col.find_one({"user_id": user_id})
         if not user_data_db:
@@ -549,8 +564,10 @@ def check_true_subscription(user_id, first_name):
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
 
         # بدء عملية الاشتراك الوهمي (فيديوهات1) بعد الانتهاء من الإجباري
-        bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
-        fake_sub_pending[user_id] = {"category": "v1", "step": 0} # نبدأ من الخطوة 0
+        # هنا نحفظ الرسالة التي تم إرسالها
+        sent_message = bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
+        # هنا نخزن رقم الرسالة (message_id) في القاموس fake_sub_pending
+        fake_sub_pending[user_id] = {"category": "v1", "step": 0, "message_to_delete_id": sent_message.message_id}
         send_required_links_fake(user_id, "v1")
     else:
         # إذا لم يكن مشتركاً في جميع القنوات بعد (رغم محاولة التحقق الكاملة)، نقوم بتحديث حالة joined إلى False
@@ -670,6 +687,20 @@ def send_required_links_fake(chat_id, category):
     data = fake_sub_pending.get(chat_id, {"category": category, "step": 0})
     step = data["step"]
     links = subscribe_links_v1
+
+    # <--- أضف هذه الأسطر هنا --->
+    # التحقق مما إذا كان لدينا رسالة سابقة لحذفها
+    if "message_to_delete_id" in data:
+        try:
+            bot.delete_message(chat_id=chat_id, message_id=data["message_to_delete_id"])
+        except Exception as e:
+            # إذا فشل الحذف (مثلاً، لأن الرسالة حُذفت بالفعل أو حدث خطأ آخر)، اطبع الخطأ لكن لا توقف البوت
+            print(f"Error deleting previous message (ID: {data['message_to_delete_id']}): {e}")
+        finally:
+            # بعد محاولة الحذف (سواء نجحت أم فشلت)، نزيل المعرف من القاموس
+            # حتى لا نحاول حذفها مرة أخرى
+            del fake_sub_pending[chat_id]["message_to_delete_id"]
+    # <--- نهاية الإضافة --->
 
     if not links: # إذا لم تكن هناك قنوات اشتراك وهمية معرفة
         notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
