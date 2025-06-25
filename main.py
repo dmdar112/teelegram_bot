@@ -853,7 +853,7 @@ def handle_owner_response(call):
             add_approved_user(approved_v1_col, user_id)
         else: # category == "v2"
             add_approved_user(approved_v2_col, user_id)
-        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
+        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.", reply_markup=main_keyboard())
         bot.edit_message_text(
     new_text="✅ تم قبول المستخدم.",
     chat_id=call.message.chat.id,
