@@ -1,3 +1,4 @@
+# استيراد المكتبات اللازمة
 import os
 import time
 import json
@@ -30,7 +31,7 @@ fake_sub_pending = {}  # {user_id: {"step": step, "category": "v1"}} - لتتب�
 # متغيرات جديدة لإدارة القنوات (القنوات الاختيارية + الإجبارية)
 # الآن ستخزن أيضًا معرف الرسالة للسؤال وسياق العودة لتسهيل التنقل
 waiting_for_channel_link = {} # {user_id: {"prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
-waiting_for_channel_to_delete = {} # {user_id: {"channels": channels, "prompt_message_id": message_id, "channel_type": "true", "context": "true极_management"}}
+waiting_for_channel_to_delete = {} # {user_id: {"channels": channels, "prompt_message_id": message_id, "channel_type": "true", "context": "true_sub_management"}}
 
 waiting_for_optional_link = {} # {user_id: {"category": category, "prompt_message_id": message_id, "context": "fake_sub_management"}}
 waiting_for_optional_delete = {} # {user_id: {"category": category, "channels": channels, "prompt_message_id": message_id, "context": "fake_sub_management"}}
@@ -83,7 +84,7 @@ subscribe_links_v1 = load_subscribe_links_v1()
 subscribe_links_v2 = load_subscribe_links_v2()
 
 # متغيرات إضافية لتتبع حالة البوت
-pending_check = {} # لتتبع تقدم المستخدم في الاشتراقات الاختيارية (فيديوهات1/2)
+pending_check = {} # لتتبع تقدم المستخدم في الاشتراكات الاختيارية (فيديوهات1/2)
 owner_upload_mode = {} # {user_id: {"category": "v1", "prompt_message_id": message_id, "context": "owner_main"}} لتتبع وضع رفع الفيديوهات للمالك
 waiting_for_broadcast = {} # {user_id: {"photo": True/False, "awaiting_text": True/False, "photo_file_id": file_id, "prompt_message_id": message_id, "context": "owner_main"}} لتتبع حالة الرسالة الجماعية
 
@@ -199,7 +200,7 @@ def delete_videos_v2(message):
 
     # لوحة مفاتيح جديدة تحتوي على زر "رجوع"
     back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    back_markup.add(types极boardButton("رجوع"))
+    back_markup.add(types.KeyboardButton("رجوع"))
 
     if not videos:
         bot.send_message(user_id, "لا يوجد فيديوهات في فيديوهات2.", reply_markup=owner_keyboard())
@@ -381,7 +382,7 @@ def handle_delete_choice(message):
                 text += "\nأرسل رقم الفيديو الذي تريد حذفه."
                 back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 back_markup.add(types.KeyboardButton("رجوع"))
-                sent_message = bot.send_message(user_id, text, reply_markup=back极arkup)
+                sent_message = bot.send_message(user_id, text, reply_markup=back_markup)
                 waiting_for_delete[user_id] = {"category": category, "videos": current_videos, "prompt_message_id": sent_message.message_id, "context": "owner_main"}
             else:
                 bot.send_message(user_id, "لا توجد فيديوهات في هذا القسم.", reply_markup=owner_keyboard())
@@ -457,7 +458,10 @@ def clean_videos_v2_button(message):
     bot.send_message(user_id, f"✅ تم تنظيف فيديوهات2. عدد الفيديوهات المحذوفة: {removed_count}", reply_markup=owner_keyboard())
 
 def check_true_subscription(user_id, first_name):
-    """يقوم بالتحقق من جميع قنوات الاشتراك الإجباري (true_subscribe_links) بشكل متسلسل."""
+    """
+    يقوم بالتحقق من جميع قنوات الاشتراك الإجباري (true_subscribe_links) بشكل متسلسل.
+    ويدفع المستخدم للاشتراك في القناة التالية إذا لم يكن مشتركًا.
+    """
     global true_subscribe_links # تأكد من استخدام أحدث قائمة
     true_subscribe_links = load_true_subscribe_links() # إعادة تحميل القائمة في كل مرة للتحقق من التحديثات
 
@@ -502,19 +506,20 @@ def check_true_subscription(user_id, first_name):
                     bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
                     return # توقف هنا وانتظر تفاعل المستخدم
             else: # رابط دعوة خاص (يبدأ بـ +) - لا يمكن للبوت التحقق منه مباشرة
-                # في هذه الحالة، ننتقل مباشرة إلى القناة التالية بعد الضغط على الزر
-                true_sub_pending[user_id] = index + 1  # انتقل إلى القناة التالية
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("✅ بعد الاشتراك، اضغط هنا للمتابعة ✅", callback_data="check_true_subscription"))
+                # في هذه الحالة، نفترض أن المستخدم يحتاج للاشتراك ونطلب منه ذلك
+                all_channels_subscribed = False
+                true_sub_pending[user_id] = index # احفظ الخطوة
                 text = (
                     "🚸| عذراً عزيزي .\n"
                     "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
                     f"- {current_channel_link}\n\n"
                     "‼️| اشترك ثم اضغط /الزر أدناه للمتابعة ~"
                 )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("✅ لقد اشتركت، اضغط هنا للمتابعة", callback_data="check_true_subscription"))
                 bot.send_message(user_id, text, disable_web_page_preview=True, reply_markup=markup)
-                return
-                    
+                return # توقف هنا وانتظر تفاعل المستخدم
+            
             # إذا كان مشتركًا أو تم تجاوز فحص القناة الخاصة بنجاح، استمر في الحلقة
             true_sub_pending[user_id] = index + 1 # تحديث الخطوة للقناة التالية
 
@@ -543,8 +548,6 @@ def check_true_subscription(user_id, first_name):
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
 
-        # إضافة تأخير قبل بدء الاشتراك الوهمي
-        time.sleep(1)
         # بدء عملية الاشتراك الوهمي (فيديوهات1) بعد الانتهاء من الإجباري
         bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
         fake_sub_pending[user_id] = {"category": "v1", "step": 0} # نبدأ من الخطوة 0
@@ -592,23 +595,11 @@ def send_start_welcome_message(user_id, first_name):
 # معالج لـ callback_data "check_true_subscription"
 @bot.callback_query_handler(func=lambda call: call.data == "check_true_subscription")
 def handle_check_true_subscription_callback(call):
-    """معالج لزر 'لقد اشتركت، اضغط هنا للمتابعة' بعد الاشتراك الإجباري."""
-    try:
-        # حذف الرسالة القديمة التي تحتوي على الزر
-        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
-    except Exception as e:
-        print(f"⚠️ خطأ في حذف رسالة التحقق: {e}")
-    
-    bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...")
+    """معالج لزر "لقد اشتركت، اضغط هنا للمتابعة" بعد الاشتراك الإجباري."""
+    bot.answer_callback_query(call.id, "جاري التحقق من اشتراكك...") # إشعار للمستخدم بأن التحقق جارٍ
     user_id = call.from_user.id
-    first_name = call.from_user.first_name or "مستخدم"
-    
-    # إعادة تحميل قنوات الاشتراك الإجباري لضمان التحديث
-    global true_subscribe_links
-    true_subscribe_links = load_true_subscribe_links()
-    
-    # إعادة بدء عملية التحقق
-    check_true_subscription(user_id, first_name)
+    first_name = call.from_user.first_name or "مستخدم" # نحصل على الاسم من الكول باك
+    check_true_subscription(user_id, first_name) # إعادة التحقق
 
 # معالج لزر "فيديوهات1"
 @bot.message_handler(func=lambda m: m.text == "مقاطع1/🤤🫦🇸🇯")
@@ -679,37 +670,15 @@ def send_required_links_fake(chat_id, category):
     links = subscribe_links_v1
 
     if not links: # إذا لم تكن هناك قنوات اشتراك وهمية معرفة
-        # إرسال رسالة تأكيد للمستخدم
-        bot.send_message(chat_id, "✅ تم التحقق من اشتراكاتك بنجاح! يمكنك الآن الوصول إلى المحتوى.", reply_markup=main_keyboard())
-        
-        # إضافة المستخدم إلى القائمة الموافق عليها
-        if category == "v1":
-            add_approved_user(approved_v1_col, chat_id)
-        elif category == "v2":
-            add_approved_user(approved_v2_col, chat_id)
-        
-        # إرسال الفيديوهات مباشرة
-        send_videos(chat_id, category)
-        
-        if chat_id in fake_sub_pending:
-            del fake_sub_pending[chat_id]
+        notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
+        bot.send_message(chat_id, "تم إرسال طلبك للموافقة (لا توجد قنوات اشتراك حالياً). الرجاء الانتظار.", reply_markup=main_keyboard())
+        fake_sub_pending.pop(chat_id, None) # إزالة من حالة الانتظار
         return
 
     if step >= len(links): # إذا أكمل المستخدم جميع القنوات
-        # إرسال رسالة تأكيد للمستخدم
-        bot.send_message(chat_id, "✅ تم التحقق من اشتراكاتك بنجاح! يمكنك الآن الوصول إلى المحتوى.", reply_markup=main_keyboard())
-        
-        # إضافة المستخدم إلى القائمة الموافق عليها
-        if category == "v1":
-            add_approved_user(approved_v1_col, chat_id)
-        elif category == "v2":
-            add_approved_user(approved_v2_col, chat_id)
-        
-        # إرسال الفيديوهات مباشرة
-        send_videos(chat_id, category)
-        
-        if chat_id in fake_sub_pending:
-            del fake_sub_pending[chat_id]
+        notify_owner_for_approval(chat_id, "مستخدم", category, is_fake=True)
+        bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
+        fake_sub_pending.pop(chat_id, None)
         return
 
     link = links[step] # الحصول على رابط القناة الحالي
@@ -794,48 +763,29 @@ def verify_subscription_callback(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_fake_"))
 def verify_fake_subscription_callback(call):
     """معالج للتحقق من الاشتراك الوهمي عبر الأزرار. ينقل المستخدم للقناة التالية أو يطلب الموافقة."""
-    try:
-        bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
+    bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
 
-        user_id = call.from_user.id
-        
-        # تحسين معالجة بيانات الكallback
-        parts = call.data.split("_")
-        if len(parts) < 4:
-            bot.answer_callback_query(call.id, "خطأ في البيانات. يرجى المحاولة مرة أخرى.")
-            return
-            
-        category = parts[2]
-        step_str = parts[3]
-        step = int(step_str) + 1
-        links = load_subscribe_links_v1()  # لأن الاشتراك الوهمي حاليًا فقط لفيديوهات1
+    user_id = call.from_user.id
+    _, fake, category, step_str = call.data.split("_")  # verify_fake_v1_0
+    step = int(step_str) + 1
+    links = load_subscribe_links_v1()  # لأن الاشتراك الوهمي حاليًا فقط لفيديوهات1
 
-        # التحقق من وجود المستخدم في الحالة
-        if user_id not in fake_sub_pending:
-            fake_sub_pending[user_id] = {"category": category, "step": step-1}
-            send_required_links_fake(user_id, category)
-            return
-
-        if step < len(links): # إذا كان لا يزال هناك قنوات للاشتراك فيها
-            fake_sub_pending[user_id] = {"category": category, "step": step}
-            send_required_links_fake(user_id, category) # أرسل القناة التالية
-        else: # إذا أكمل المستخدم جميع القنوات الوهمية
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("🔴 إذا كنت غير مشترك، اضغط هنا 🔴", callback_data=f"resend_fake_{category}")
-            )
-            bot.send_message(
-                user_id,
-                "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
-                "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإلا سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️",
-                reply_markup=markup
-            )
-            notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
-            if user_id in fake_sub_pending:
-                del fake_sub_pending[user_id] # إزالة المستخدم من حالة الانتظار
-    except Exception as e:
-        print(f"خطأ في معالجة الاشتراك الوهمي: {e}")
-        bot.answer_callback_query(call.id, "حدث خطأ. يرجى المحاولة مرة أخرى.")
+    if step < len(links): # إذا كان لا يزال هناك قنوات للاشتراك فيها
+        fake_sub_pending[user_id] = {"category": category, "step": step}
+        send_required_links_fake(user_id, category) # أرسل القناة التالية
+    else: # إذا أكمل المستخدم جميع القنوات الوهمية
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("🔴 إذا كنت غير مشترك، اضغط هنا 🔴", callback_data=f"resend_fake_{category}")
+        )
+        bot.send_message(
+            user_id,
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
+            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️",
+            reply_markup=markup
+        )
+        notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
+        fake_sub_pending.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
 
 # إعادة إرسال روابط الاشتراك عند طلب المستخدم (إذا لم يكملها)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
@@ -894,12 +844,20 @@ def handle_owner_response(call):
         else: # category == "v2"
             add_approved_user(approved_v2_col, user_id)
         bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.")
-        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id) # تعديل رسالة الإشعار للمالك
+        bot.edit_message_text(
+    new_text="✅ تم قبول المستخدم.",
+    chat_id=call.message.chat.id,
+    message_id=call.message.message_id
+) # تعديل رسالة الإشعار للمالك
     else: # action == "reject"
         # يمكنك إضافة منطق لحذف المستخدم من "approved_v1_col" أو "approved_v2_col" إذا كان موجوداً
         # أو فقط إرسال رسالة الرفض
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id) # تعديل رسالة الإشعار للمالك
+        bot.edit_message_text(
+    new_text="❌ تم رفض المستخدم.",
+    chat_id=call.message.chat.id,
+    message_id=call.message.message_id
+)# تعديل رسالة الإشعار للمالك
 
 # معالج لزر "رفع فيديوهات1" (خاص بالمالك)
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
@@ -1075,7 +1033,12 @@ def manage_true_sub_channels(call):
         types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
     )
     markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
-    bot.edit_message_text("أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+    bot.edit_message_text(
+    new_text="أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:",
+    chat_id=call.message.chat.id,
+    message_id=call.message.message_id,
+    reply_markup=markup
+)
 
 # معالج لزر "اشتراك وهمي (فيديوهات 1 و 2)"
 @bot.callback_query_handler(func=lambda call: call.data == "manage_fake_sub_channels")
@@ -1110,7 +1073,7 @@ def manage_fake_sub_channels(call):
         "أنت الآن في قسم إدارة قنوات الاشتراك الوهمي. اختر إجراءً:",
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        reply_markup极markup
+        reply_markup=markup
     )
 
 # معالج زر "رجوع إلى أقسام الاشتراك الإجباري" الذي يظهر في أقسام إدارة القنوات الفرعية
@@ -1264,7 +1227,12 @@ def handle_add_true_channel_link(message):
             types.InlineKeyboardButton("عرض القنوات", callback_data="view_channels_true")
         )
         markup.add(types.InlineKeyboardButton("رجوع إلى أقسام الاشتراك الإجباري", callback_data="back_to_main_channel_management"))
-        bot.send_message(user_id, "أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:", reply_markup=markup)
+        bot.edit_message_text(
+    new_text="أنت الآن في قسم إدارة قنوات الاشتراك الحقيقي الإجباري. اختر إجراءً:",
+    chat_id=call.message.chat.id,
+    message_id=call.message.message_id,
+    reply_markup=markup
+)
     else: # في حال فقدان السياق أو غير متوقع، العودة للوحة مفاتيح المالك
         bot.send_message(user_id, "تم إنجاز العملية.", reply_markup=owner_keyboard())
     
@@ -1319,7 +1287,7 @@ def handle_add_optional_channel_link(message):
     if context == "fake_sub_management":
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
-            types.InlineKeyboard极("➕ إضافة قناة (فيديوهات1)", callback_data="add_channel_v1"),
+            types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات1)", callback_data="add_channel_v1"),
             types.InlineKeyboardButton("➕ إضافة قناة (فيديوهات2)", callback_data="add_channel_v2")
         )
         markup.add(
