@@ -780,7 +780,6 @@ def verify_fake_subscription_callback(call):
         fake_sub_pending[user_id] = {"category": category, "step": step}
         send_required_links_fake(user_id, category) # أرسل القناة التالية
     else: # إذا أكمل المستخدم جميع القنوات الوهمية
-        
     # تم حذف لوحة المفاتيح التي تحتوي على زر "إذا كنت غير مشترك"
     bot.send_message(
         user_id,
@@ -790,7 +789,6 @@ def verify_fake_subscription_callback(call):
     )
     notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
     fake_sub_pending.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
-
 
 
 # معالج للتحقق من الاشتراك الاختياري (لقسم فيديوهات2 تحديداً، أو أي قسم يستخدم send_required_links)
