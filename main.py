@@ -849,6 +849,7 @@ def verify_subscription_callback(call):
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category) # إشعار المالك بطلب الموافقة
 
+
 # إعادة إرسال روابط الاشتراك عند طلب المستخدم (إذا لم يكملها)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
 def resend_links(call):
