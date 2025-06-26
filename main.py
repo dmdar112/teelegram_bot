@@ -763,11 +763,11 @@ def send_required_links(chat_id, category):
 
     pending_check[chat_id] = {"category": category, "step": step} # حفظ حالة المستخدم الحالية
 
-# معالج للتحقق من الاشتراك الوهمي عبر الأزرار
+# معالج للتحقق من الاشتراك الوهمي عبر الأزرار  <- هذه هي الدالة الوحيدة المتبقية بعد الحذف
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_fake_"))
 def verify_fake_subscription_callback(call):
     """معالج للتحقق من الاشتراك الوهمي عبر الأزرار. ينقل المستخدم للقناة التالية أو يطلب الموافقة."""
-    # ⬅️ **أضف هذا السطر هنا بالضبط (في السطر 773):**
+    # ⬅️ **أضف هذا السطر هنا بالضبط (في السطر 773):** <- ملاحظة: هذا السطر مجرد تعليق
     print(f"DEBUG_RECEIVE: Received fake subscription callback. User ID: {call.from_user.id}, Data: {call.data}")
     bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
 
@@ -793,26 +793,53 @@ def verify_fake_subscription_callback(call):
         notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
         fake_sub_pending.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
 
-# معالج للتحقق من الاشتراك الوهمي عبر الأزرار
-@bot.callback_query_handler(func=lambda call: call.data.startswith("verify_fake_"))
-def verify_fake_subscription_callback(call):
-    """معالج للتحقق من الاشتراك الوهمي عبر الأزرار. ينقل المستخدم للقناة التالية أو يطلب الموافقة."""
-    # ✅ أضف هذا السطر هنا بالضبط (السطر 773 في الكود الذي أرسلته):
-    print(f"DEBUG: Received fake subscription callback. User ID: {call.from_user.id}, Data: {call.data}")
+---
+```python
+# معالج للتحقق من الاشتراك الاختياري (لقسم فيديوهات2 تحديداً، أو أي قسم يستخدم send_required_links)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("verify_") and not call.data.startswith("verify_fake_"))
+def verify_subscription_callback(call):
+    """معالج للتحقق من الاشتراك الاختياري عبر الأزرار. ينقل المستخدم للقناة التالية أو يطلب الموافقة."""
+    print(f"DEBUG: Received optional subscription callback. User ID: {call.from_user.id}, Data: {call.data}")
     bot.answer_callback_query(call.id)  # لحل مشكلة الزر المعلق
 
     user_id = call.from_user.id
-    _, fake, category, step_str = call.data.split("_")  # verify_fake_v1_0
-    step = int(step_str) + 1
-    links = load_subscribe_links_v1()  # لأن الاشتراك الوهمي حاليًا فقط لفيديوهات1
+    # تقسيم البيانات: verify_v2_0 -> ['verify', 'v2', '0']
+    parts = call.data.split("_")
+    if len(parts) < 3: # تأكد أن البيانات كافية لتجنب الأخطاء
+        print(f"ERROR: Malformed callback data: {call.data}")
+        bot.send_message(user_id, "حدث خطأ في معالجة طلبك، يرجى المحاولة مرة أخرى.")
+        return
+
+    category = parts[1] # مثلاً 'v2'
+    step_str = parts[2] # مثلاً '0'
+
+    try:
+        step = int(step_str) + 1
+    except ValueError:
+        print(f"ERROR: Invalid step in callback data: {step_str}")
+        bot.send_message(user_id, "حدث خطأ داخلي. يرجى المحاولة لاحقاً.")
+        return
+
+    links = []
+    if category == "v1": # بالرغم من أن v1 يستخدم fake_sub_links بشكل أساسي، هذا يجعله متوافقاً
+        links = load_subscribe_links_v1()
+    elif category == "v2":
+        links = load_subscribe_links_v2()
+    else:
+        print(f"WARNING: Unknown category in callback: {category}")
+        bot.send_message(user_id, "فئة غير معروفة. يرجى البدء من جديد.")
+        return
 
     if step < len(links): # إذا كان لا يزال هناك قنوات للاشتراك فيها
-        fake_sub_pending[user_id] = {"category": category, "step": step}
-        send_required_links_fake(user_id, category) # أرسل القناة التالية
-    else: # إذا أكمل المستخدم جميع القنوات الوهمية
+        pending_check[user_id] = {"category": category, "step": step}
+        send_required_links(user_id, category) # أرسل القناة التالية
+    else: # إذا أكمل المستخدم جميع القنوات الاختيارية
+        # مسح حالة pending_check حيث أكمل المستخدم جميع الخطوات
+        pending_check.pop(user_id, None)
+
         markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton("🔴 إذا كنت غير مشترك، اضغط هنا 🔴", callback_data=f"resend_fake_{category}")
+            types.InlineKeyboardButton("🔴 إذا كنت غير مشترك، اضغط هنا 🔴", callback_data=f"resend_{category}")
         )
         bot.send_message(
             user_id,
@@ -820,8 +847,7 @@ def verify_fake_subscription_callback(call):
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️",
             reply_markup=markup
         )
-        notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
-        fake_sub_pending.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
+        notify_owner_for_approval(user_id, call.from_user.first_name, category) # إشعار المالك بطلب الموافقة
 
 # إعادة إرسال روابط الاشتراك عند طلب المستخدم (إذا لم يكملها)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
