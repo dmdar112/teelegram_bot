@@ -33,7 +33,7 @@ db = client["telegram_bot_db"]
 
 # مجموعات (Collections)
 approved_v1_col = db["approved_v1"]
-approved_v2_col = db["approved_v2"]
+approved_v2_col = db["approved_v2"] # هذه المجموعة ستستخدم الآن لتحديد من يمكنه الوصول لـ فيديوهات2
 notified_users_col = db["notified_users"]
 users_col = db["users"]
 activated_users_col = db["activated_users"]
@@ -184,9 +184,6 @@ def send_required_links_fake(chat_id, category):
     links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
 
     if step >= len(links):
-        # هذه الدالة notify_owner_for_approval غير معرفة في الكود الخاص بك.
-        # قد تحتاج إلى تعريفها أو استبدالها بما يناسب منطقك.
-        # notify_owner_for_approval(chat_id, "مستخدم", category)
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
         fake_sub_pending.pop(chat_id, None)
         return
@@ -220,9 +217,6 @@ def verify_fake_subscription_callback(call):
             "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️"
         )
-        # هذه الدالة notify_owner_for_approval غير معرفة في الكود الخاص بك.
-        # قد تحتاج إلى تعريفها أو استبدالها بما يناسب منطقك.
-        # notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True)
         fake_sub_pending.pop(user_id, None)
 
 # --- معالجات الأوامر والرسائل (مرتبة حسب الأولوية) ---
@@ -257,14 +251,10 @@ def set_upload_mode(message):
 # 3. معالج رسالة التفعيل (للمستخدمين غير المفعلين) - هذا هو الأهم
 @bot.message_handler(func=lambda m: not is_user_activated(m.from_user.id))
 def handle_activation_check(message):
-    # رسائل طباعة لتشخيص المشكلة
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Received message from non-activated user: {message.from_user.id}")
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Full Message object: {message}") # اطبع كائن الرسالة كاملا لفحصه
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Full Message object: {message}") 
 
-    # تأكد من أن هذه هي العبارة الصحيحة بالضبط
     expected_phrase = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
-
-    # نتحقق من وجود النص في الرسالة بغض النظر عن كونها معاد توجيه أم لا
     message_text = message.text if message.text else ""
     
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Message text received: '{message_text}'")
@@ -272,22 +262,21 @@ def handle_activation_check(message):
 
     if expected_phrase in message_text:
         activate_user(message.from_user.id)
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {message.from_user.id} activated and saved to MongoDB.")
-        # بعد التفعيل، يتم إرسال رسالة التفعيل مع الأزرار الرئيسية
+        # !!! التعديل هنا: إضافة المستخدم إلى approved_v2_col عند التفعيل من بوت التمويل !!!
+        add_approved_user(approved_v2_col, message.from_user.id) 
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {message.from_user.id} activated and granted access to V2.")
         bot.send_message(message.from_user.id, "✅ تم التفعيل بنجاح! يمكنك الآن استخدام البوت.", reply_markup=main_keyboard())
     else:
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Message content mismatch or not the activation message.")
-        # هذه هي الرسالة للمستخدمين غير المفعلين
-        # **هنا نقوم بإخفاء الأزرار و معاينة الرابط:**
         bot.send_message(
             message.from_user.id,
             "🚫 يرجى تفعيل البوت أولاً.\n"
             "للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا وإكمال عملية الدخول، ثم قم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
-            "💰 رابط بوت التمويل: https://t.me/yynnurybot?start=0006k43lft\n\n" # رابط الدعوة المحدد
+            "💰 رابط بوت التمويل: https://t.me/yynnurybot?start=0006k43lft\n\n" 
             "✅ يجب أن تحتوي رسالة التفعيل على العبارة: '• لقد دخلت بنجاح عبر الرابط...'.\n"
             "يمكنك إعادة توجيه الرسالة أو نسخها ولصقها مباشرة.",
-            reply_markup=types.ReplyKeyboardRemove(), # هذا يخفي أي أزرار موجودة
-            disable_web_page_preview=True # هذا يخفي معاينة الرابط
+            reply_markup=types.ReplyKeyboardRemove(), 
+            disable_web_page_preview=True 
         )
 
 # 4. دالة /start (بعد التفعيل)
@@ -298,14 +287,13 @@ def start(message):
 
     # إذا لم يكن المستخدم مفعلًا
     if not is_user_activated(user_id):
-        # نرسل رسالة توجيهية مع إخفاء الأزرار
         bot.send_message(
             user_id, 
             "🚫 يجب تفعيل البوت أولاً. يرجى إرسال رسالة التفعيل المطلوبة.\n"
             "للحصول على رسالة التفعيل، اتبع الخطوات في الرسالة السابقة.",
-            reply_markup=types.ReplyKeyboardRemove() # تأكد من إخفاء الأزرار هنا أيضاً
+            reply_markup=types.ReplyKeyboardRemove()
         )
-        return # نوقف التنفيذ هنا لمنع الوصول لوظائف البوت
+        return 
 
     # للمالك (بعد التفعيل)
     if user_id == OWNER_ID:
@@ -335,7 +323,8 @@ def start(message):
 @bot.message_handler(func=lambda m: is_user_activated(m.from_user.id) and m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
-    if user_id in load_approved_users(approved_v1_col):
+    # هذا القسم لا يتطلب التفعيل من بوت التمويل مباشرة
+    if user_id in load_approved_users(approved_v1_col): # يمكن استخدام هذا الشرط للتحقق من الاشتراك الوهمي
         send_videos(user_id, "v1")
     else:
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية:")
@@ -353,17 +342,21 @@ def handle_v2(message):
     if maintenance_mode and user_id != OWNER_ID:
         bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
         return
+    
+    # !!! التعديل هنا: التحقق من أن المستخدم في approved_v2_col !!!
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
-        bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
-        data = pending_check.get(user_id)
-        
-        if user_id not in fake_sub_pending:
-            fake_sub_pending[user_id] = {"category": "v2", "step": 0}
-            send_required_links_fake(user_id, "v2")
-        else:
-            send_required_links_fake(user_id, fake_sub_pending[user_id]["category"])
+        # رسالة إذا لم يكن مفعلاً لـ فيديوهات2
+        bot.send_message(
+            user_id, 
+            "🚫 للوصول إلى فيديوهات 2، يرجى تفعيل اشتراكك عبر بوت التمويل.\n"
+            "الرجاء إرسال رسالة التفعيل التي استلمتها من بوت التمويل الرسمي إليّ. (الرسالة التي تحتوي على عبارة 'لقد دخلت بنجاح...')\n"
+            "💰 رابط بوت التمويل: https://t.me/yynnurybot?start=0006k43lft\n"
+            "بعد إرسال الرسالة، حاول الضغط على زر 'فيديوهات2' مرة أخرى.",
+            disable_web_page_preview=True # إخفاء معاينة الرابط هنا أيضاً
+        )
+
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.text == "حذف فيديوهات1")
 def delete_videos_v1(message):
