@@ -789,6 +789,7 @@ def verify_fake_subscription_callback(call):
         fake_sub_pending.pop(user_id, None)
 
 
+
 # معالج للتحقق من الاشتراك الاختياري (لقسم فيديوهات2 تحديداً، أو أي قسم يستخدم send_required_links)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_") and not call.data.startswith("verify_fake_"))
 def verify_subscription_callback(call):
