@@ -903,19 +903,21 @@ def handle_owner_response(call):
             add_approved_user(approved_v2_col, user_id)
         
         bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.", reply_markup=main_keyboard())
-        bot.answer_callback_query(call.id, "✅ تم قبول المستخدم.") # إشعار سريع للمالك في زر الكولباك
         
-        # حذف رسالة الإشعار بعد القبول
+        # حذف رسالة الإشعار الأصلية
         bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+        # إرسال رسالة تأكيد جديدة للمالك
+        bot.send_message(call.message.chat.id, "✅ تم قبول المستخدم.")
     
     else: # action == "reject"
         # يمكنك إضافة منطق لحذف المستخدم من "approved_v1_col" أو "approved_v2_col" إذا كان موجوداً
         # أو فقط إرسال رسالة الرفض
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.answer_callback_query(call.id, "❌ تم رفض المستخدم.") # إشعار سريع للمالك في زر الكولباك
         
-        # حذف رسالة الإشعار بعد الرفض
+        # حذف رسالة الإشعار الأصلية
         bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+        # إرسال رسالة تأكيد جديدة للمالك
+        bot.send_message(call.message.chat.id, "❌ تم رفض المستخدم.")
 
 
 # معالج لزر "رفع فيديوهات1" (خاص بالمالك)
