@@ -780,7 +780,6 @@ def verify_fake_subscription_callback(call):
         fake_sub_pending[user_id] = {"category": category, "step": step}
         send_required_links_fake(user_id, category) # أرسل القناة التالية
     else: # إذا أكمل المستخدم جميع القنوات الوهمية
-    # تم حذف لوحة المفاتيح التي تحتوي على زر "إذا كنت غير مشترك"
     bot.send_message(
         user_id,
         "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
