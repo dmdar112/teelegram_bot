@@ -901,21 +901,22 @@ def handle_owner_response(call):
             add_approved_user(approved_v1_col, user_id)
         else: # category == "v2"
             add_approved_user(approved_v2_col, user_id)
+        
         bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.", reply_markup=main_keyboard())
-        bot.edit_message_text(
-    new_text="✅ تم قبول المستخدم.",
-    chat_id=call.message.chat.id,
-    message_id=call.message.message_id
-) # تعديل رسالة الإشعار للمالك
+        bot.answer_callback_query(call.id, "✅ تم قبول المستخدم.") # إشعار سريع للمالك في زر الكولباك
+        
+        # حذف رسالة الإشعار بعد القبول
+        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+    
     else: # action == "reject"
         # يمكنك إضافة منطق لحذف المستخدم من "approved_v1_col" أو "approved_v2_col" إذا كان موجوداً
         # أو فقط إرسال رسالة الرفض
         bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.edit_message_text(
-    new_text="❌ تم رفض المستخدم.",
-    chat_id=call.message.chat.id,
-    message_id=call.message.message_id
-)# تعديل رسالة الإشعار للمالك
+        bot.answer_callback_query(call.id, "❌ تم رفض المستخدم.") # إشعار سريع للمالك في زر الكولباك
+        
+        # حذف رسالة الإشعار بعد الرفض
+        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+
 
 # معالج لزر "رفع فيديوهات1" (خاص بالمالك)
 @bot.message_handler(func=lambda m: m.text == "رفع فيديوهات1" and m.from_user.id == OWNER_ID)
