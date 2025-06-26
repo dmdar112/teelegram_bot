@@ -19,8 +19,12 @@ maintenance_mode = False
 CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")  # آيدي القناة الخاصة بفيديوهات1
 CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخاصة بفيديوهات2
 
-# اسم مستخدم بوت التمويل الرسمي للتفعيل (تأكد من صحته)
-FINANCE_BOT_USERNAME = "yynnurybot" # !!! تأكد من هذا الاسم !!!
+# اسم مستخدم بوت التمويل الرسمي للتفعيل (لم يعد حرجاً جداً لهذه الطريقة، لكن يفضل تركه صحيحاً للإشارة)
+FINANCE_BOT_USERNAME = "yynnurybot" # هذا المتغير لم يعد يستخدم في رابط التفعيل المباشر
+
+# العبارة المتوقعة في رسالة التفعيل (تأكد من صحتها بالنسخ واللصق الدقيق)
+expected_phrase = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
+
 
 # --- إعداد MongoDB ---
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -256,41 +260,29 @@ def handle_activation_check(message):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Received message from non-activated user: {message.from_user.id}")
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Full Message object: {message}") # اطبع كائن الرسالة كاملا لفحصه
 
-    if message.forward_from_chat:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Message is forwarded.")
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Forwarded from chat username: {message.forward_from_chat.username}")
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Expected Finance Bot Username: {FINANCE_BOT_USERNAME}")
+    # تأكد من أن هذه هي العبارة الصحيحة بالضبط
+    expected_phrase = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
 
-        # تأكد من أن هذه هي العبارة الصحيحة بالضبط
-        expected_phrase = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
+    # نتحقق من وجود النص في الرسالة بغض النظر عن كونها معاد توجيه أم لا
+    message_text = message.text if message.text else ""
+    
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Message text received: '{message_text}'")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Expected phrase for comparison: '{expected_phrase}'")
 
-        # قد تكون الرسالة نفسها بدون نص (مثلاً إذا كانت صورة مع كابشن)، لذا نتحقق من وجود النص أولاً
-        message_text = message.text if message.text else ""
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Message text received: '{message_text}'")
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Expected phrase for comparison: '{expected_phrase}'")
-
-        if message.forward_from_chat.username == FINANCE_BOT_USERNAME:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ Forwarded from correct Finance Bot username.")
-            if expected_phrase in message_text:
-                activate_user(message.from_user.id)
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {message.from_user.id} activated and saved to MongoDB.")
-                bot.send_message(message.from_user.id, "✅ تم التفعيل بنجاح! يمكنك الآن استخدام البوت. اضغط /start للمتابعة.")
-            else:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Forwarded message content mismatch.")
-                bot.send_message(message.from_user.id, "❌ تم إعادة توجيه الرسالة لكن محتواها غير مطابق.\nالرجاء التأكد من الرسالة الصحيحة.")
-        else:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Forwarded from incorrect chat username. Actual: {message.forward_from_chat.username}")
-            bot.send_message(
-                message.from_user.id,
-                f"🚫 يجب تفعيل البوت أولاً.\nالرجاء إعادة توجيه رسالة التفعيل الأصلية من بوت التمويل الرسمي (مثل: @{FINANCE_BOT_USERNAME}).\n"
-                "لا تقم بنسخ الرسالة يدويًا."
-            )
+    if expected_phrase in message_text:
+        activate_user(message.from_user.id)
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {message.from_user.id} activated and saved to MongoDB.")
+        bot.send_message(message.from_user.id, "✅ تم التفعيل بنجاح! يمكنك الآن استخدام البوت. اضغط /start للمتابعة.")
     else:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Message is not forwarded. Message type: {message.content_type}")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Message content mismatch or not the activation message.")
+        # هذه هي الرسالة التي تم تعديلها لإضافة رابط بوت التمويل المحدد
         bot.send_message(
             message.from_user.id,
-            f"🚫 يجب تفعيل البوت أولاً.\nالرجاء إعادة توجيه رسالة التفعيل الأصلية من بوت التمويل الرسمي (مثل: @{FINANCE_BOT_USERNAME}).\n"
-            "لا تقم بنسخ الرسالة يدويًا."
+            "🚫 يرجى تفعيل البوت أولاً.\n"
+            "للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا وإكمال عملية الدخول، ثم قم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
+            "💰 رابط بوت التمويل: https://t.me/yynnurybot?start=0006k43lft\n\n" # هنا تم إضافة رابط الدعوة المحدد
+            "✅ يجب أن تحتوي رسالة التفعيل على العبارة: '• لقد دخلت بنجاح عبر الرابط...'.\n"
+            "يمكنك إعادة توجيه الرسالة أو نسخها ولصقها مباشرة."
         )
 
 # 4. دالة /start (بعد التفعيل)
@@ -299,18 +291,13 @@ def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    # إذا لم يكن المستخدم مفعلًا، دالة handle_activation_check هي التي ستتعامل معه
     if not is_user_activated(user_id):
-        # هنا لا نفعل شيئًا، لأن handle_activation_check ستلتقط الرسالة
-        # ويمكن أن نرسل رسالة توجيهية بسيطة لضمان الوضوح
         bot.send_message(user_id, "🚫 يجب تفعيل البوت أولاً. يرجى إرسال رسالة التفعيل المطلوبة.")
-        return # نوقف التنفيذ هنا لمنع الوصول لوظائف البوت
+        return
 
-    # للمالك
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
     else:
-        # للمستخدمين المفعلين
         welcome_message = (
             f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
             "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
@@ -339,15 +326,13 @@ def handle_v1(message):
     else:
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية:")
         data = pending_check.get(user_id)
-        if data and data["category"] == "v1":
-            # هذه الدالة send_required_links غير معرفة في الكود الخاص بك.
-            # ستحتاج إلى تعريفها أو استخدام send_required_links_fake إذا كان هذا هو المقصود.
-            # send_required_links(user_id, "v1")
-            pass # Placeholder if no action is needed here
+        
+        # مثال على كيفية استدعاء send_required_links_fake إذا كان هذا هو المقصود
+        if user_id not in fake_sub_pending:
+            fake_sub_pending[user_id] = {"category": "v1", "step": 0}
+            send_required_links_fake(user_id, "v1")
         else:
-            pending_check[user_id] = {"category": "v1", "step": 0}
-            # send_required_links(user_id, "v1") # نفس الملاحظة أعلاه
-            pass # Placeholder if no action is needed here
+            send_required_links_fake(user_id, fake_sub_pending[user_id]["category"])
 
 @bot.message_handler(func=lambda m: is_user_activated(m.from_user.id) and m.text == "فيديوهات2")
 def handle_v2(message):
@@ -360,13 +345,13 @@ def handle_v2(message):
     else:
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
         data = pending_check.get(user_id)
-        if data and data["category"] == "v2":
-            # send_required_links(user_id, "v2") # نفس الملاحظة أعلاه
-            pass # Placeholder if no action is needed here
+        
+        # مثال على كيفية استدعاء send_required_links_fake إذا كان هذا هو المقصود
+        if user_id not in fake_sub_pending:
+            fake_sub_pending[user_id] = {"category": "v2", "step": 0}
+            send_required_links_fake(user_id, "v2")
         else:
-            pending_check[user_id] = {"category": "v2", "step": 0}
-            # send_required_links(user_id, "v2") # نفس الملاحظة أعلاه
-            pass # Placeholder if no action is needed here
+            send_required_links_fake(user_id, fake_sub_pending[user_id]["category"])
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.text == "حذف فيديوهات1")
 def delete_videos_v1(message):
