@@ -19,16 +19,22 @@ maintenance_mode = False
 CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")  # آيدي القناة الخاصة بفيديوهات1
 CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخاصة بفيديوهات2
 
-# اسم مستخدم بوت التمويل الرسمي للتفعيل (لم يعد حرجاً جداً بهذه الطريقة)
-FINANCE_BOT_USERNAME = "yynnurybot" 
-
-# العبارة المتوقعة في رسالة التفعيل الأساسية (لتفعيل البوت وفيديوهات1)
+# --- إعدادات التفعيل لفيديوهات1 ---
+# اسم مستخدم بوت التمويل الخاص بتفعيل فيديوهات1 (إذا كان لديك واحد محدد)
+FINANCE_BOT_USERNAME_V1 = "yynnurybot" 
+# العبارة المتوقعة في رسالة التفعيل الخاصة بفيديوهات1
 ACTIVATION_PHRASE_V1 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
+# رابط بوت التمويل الخاص بتفعيل فيديوهات1
+FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft" # **غير هذا الرابط حسب الحاجة**
 
-# العبارة المتوقعة في رسالة التفعيل الخاصة بفيديوهات2 (يجب أن تكون مختلفة عن V1)
-# !!! يجب عليك تغيير هذه العبارة لتكون فريدة لتفعيل فيديوهات2 !!!
-# مثال: لو كان هناك بوت تمويل آخر يرسل رسالة مختلفة، أو رسالة تفعيل خاصة من نفس البوت.
+# --- إعدادات التفعيل لفيديوهات2 ---
+# اسم مستخدم بوت التمويل الخاص بتفعيل فيديوهات2 (إذا كان لديك واحد محدد)
+FINANCE_BOT_USERNAME_V2 = "another_finance_bot" # **غير هذا الاسم إذا كان مختلفًا**
+# العبارة المتوقعة في رسالة التفعيل الخاصة بفيديوهات2
+# **مهم جداً: يجب تغيير هذه العبارة لتكون فريدة ومختلفة عن ACTIVATION_PHRASE_V1**
 ACTIVATION_PHRASE_V2 = "✅ تم تفعيل اشتراكك الخاص بمحتوى VIP بنجاح! استمتع بالمشاهدة."
+# رابط بوت التمويل الخاص بتفعيل فيديوهات2
+FINANCE_BOT_LINK_V2 = "https://t.me/another_finance_bot?start=vip_access" # **غير هذا الرابط ليناسب بوت التمويل الثاني أو رابط تفعيل خاص**
 
 
 # --- إعداد MongoDB ---
@@ -37,11 +43,11 @@ client = MongoClient(MONGODB_URI)
 db = client["telegram_bot_db"]
 
 # مجموعات (Collections)
+# activated_users_col لم تعد تستخدم كشرط أساسي لأننا نعتمد على approved_v1_col و approved_v2_col
 approved_v1_col = db["approved_v1"] # للمستخدمين الذين يمكنهم الوصول لفيديوهات1
 approved_v2_col = db["approved_v2"] # للمستخدمين الذين يمكنهم الوصول لفيديوهات2
 notified_users_col = db["notified_users"]
 users_col = db["users"]
-activated_users_col = db["activated_users"] # للمستخدمين المفعلين في البوت بشكل عام
 
 
 # --- قوائم الروابط والحالات المؤقتة ---
@@ -67,17 +73,8 @@ true_sub_pending = {}
 
 # --- دوال مساعدة عامة ---
 
-# دوال إدارة المستخدمين المفعلين في MongoDB
-def is_user_activated(user_id):
-    """التحقق مما إذا كان المستخدم مفعلًا في MongoDB (للدخول العام للبوت)."""
-    return activated_users_col.find_one({"user_id": user_id}) is not None
-
-def activate_user(user_id):
-    """تفعيل المستخدم وحفظه في MongoDB (للدخول العام للبوت)."""
-    if not is_user_activated(user_id):
-        activated_users_col.insert_one({"user_id": user_id, "activation_time": time.time()})
-
-# دوال أخرى
+# لم نعد نحتاج is_user_activated و activate_user بهذه الطريقة
+# لأن التفعيل صار مرتبط بالموافقة على قسم معين مباشرة
 def load_approved_users(collection):
     return set(doc["user_id"] for doc in collection.find())
 
@@ -96,7 +93,6 @@ def add_notified_user(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
 def main_keyboard():
-    # سيتم إرسال هذا الـ Keyboard فقط للمستخدمين المفعلين
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
         types.KeyboardButton("فيديوهات1"), types.KeyboardButton("فيديوهات2")
     )
@@ -107,17 +103,11 @@ def owner_keyboard():
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
     markup.row("رسالة جماعية مع صورة")
     markup.row("/on", "/off")
-    # إضافة زر لإضافة مستخدم لـ فيديوهات2 يدوياً (للمالك)
-    markup.row("إضافة لـ فيديوهات2")
     return markup
 
-def get_all_approved_users():
-    # هذه الدالة ستعيد المستخدمين المفعلين في أي من القسمين
-    return set(
-        user["user_id"] for user in approved_v1_col.find()
-    ).union(
-        user["user_id"] for user in approved_v2_col.find()
-    )
+def get_total_approved_users():
+    # مجموع المستخدمين الذين لديهم وصول لأي من القسمين
+    return len(load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col)))
 
 def send_videos(user_id, category):
     collection_name = f"videos_{category}"
@@ -256,100 +246,46 @@ def set_upload_mode(message):
         owner_upload_mode[message.from_user.id] = mode
         bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
 
-# --- إدارة القبول اليدوي لـ فيديوهات2 من المالك ---
-waiting_for_v2_add_id = {} # لتخزين حالة انتظار الـ ID
-
-@bot.message_handler(func=lambda m: m.text == "إضافة لـ فيديوهات2" and m.from_user.id == OWNER_ID)
-def ask_v2_add_id(message):
-    bot.send_message(message.chat.id, "أرسل لي معرف (ID) المستخدم الذي تريد منحه الوصول إلى فيديوهات2.")
-    waiting_for_v2_add_id[message.from_user.id] = True
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_v2_add_id.get(m.from_user.id) and m.text.isdigit())
-def add_user_to_v2(message):
-    user_id_to_add = int(message.text)
-    add_approved_user(approved_v2_col, user_id_to_add)
-    bot.send_message(message.chat.id, f"✅ تم منح المستخدم {user_id_to_add} الوصول إلى فيديوهات2.", reply_markup=owner_keyboard())
-    # إرسال إشعار للمستخدم إذا كان بوتك متصلاً به
-    try:
-        bot.send_message(user_id_to_add, "🎉 تهانينا! تم منحك الوصول إلى قسم فيديوهات2! يمكنك الآن الضغط على الزر 'فيديوهات2'.", reply_markup=main_keyboard())
-    except Exception as e:
-        print(f"Could not notify user {user_id_to_add}: {e}")
-        bot.send_message(message.chat.id, f"⚠️ لم أتمكن من إرسال إشعار للمستخدم {user_id_to_add}.", reply_markup=owner_keyboard())
-    waiting_for_v2_add_id.pop(message.from_user.id)
-
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_v2_add_id.get(m.from_user.id) and not m.text.isdigit())
-def invalid_v2_add_id(message):
-    bot.send_message(message.chat.id, "❌ يرجى إرسال معرف مستخدم (ID) صالح (أرقام فقط).")
-
-# --- نهاية إدارة القبول اليدوي لـ فيديوهات2 ---
-
-
 # 3. معالج رسائل التفعيل (V1 و V2)
-@bot.message_handler(func=lambda m: (m.text and ACTIVATION_PHRASE_V1 in m.text) or (m.text and ACTIVATION_PHRASE_V2 in m.text) or not is_user_activated(m.from_user.id))
+@bot.message_handler(func=lambda m: (m.text and ACTIVATION_PHRASE_V1 in m.text) or (m.text and ACTIVATION_PHRASE_V2 in m.text))
 def handle_activation_messages(message):
     user_id = message.from_user.id
     message_text = message.text if message.text else ""
 
-    # تحقق من تفعيل فيديوهات1 (والبوت الأساسي)
+    # تحقق من تفعيل فيديوهات1
     if ACTIVATION_PHRASE_V1 in message_text:
-        if not is_user_activated(user_id):
-            activate_user(user_id) # تفعيل البوت
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} activated bot.")
-        add_approved_user(approved_v1_col, user_id) # منح الوصول لفيديوهات1
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access.")
-        bot.send_message(user_id, "✅ تم تفعيل وصولك إلى فيديوهات1 بنجاح! يمكنك الآن استخدام البوت والوصول إلى هذا القسم.", reply_markup=main_keyboard())
-        return # مهم جداً للخروج بعد التفعيل لتجنب رسائل "لم أفهم"
+        # إذا لم يكن المستخدم لديه وصول لفيديوهات1 بالفعل
+        if user_id not in load_approved_users(approved_v1_col):
+            add_approved_user(approved_v1_col, user_id) # منح الوصول لفيديوهات1
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access.")
+            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح! يمكنك الآن الضغط على زر **فيديوهات1**.", reply_markup=main_keyboard())
+        else:
+            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات1.", reply_markup=main_keyboard())
+        return
 
     # تحقق من تفعيل فيديوهات2
     if ACTIVATION_PHRASE_V2 in message_text:
-        # يجب أن يكون المستخدم مفعلاً في البوت أولاً (أرسل رسالة V1 سابقاً)
-        if not is_user_activated(user_id):
-            bot.send_message(user_id, "🚫 يجب تفعيل البوت أولاً قبل تفعيل فيديوهات2. يرجى إرسال رسالة تفعيل البوت الأساسية.", reply_markup=types.ReplyKeyboardRemove())
-            return
+        # إذا لم يكن المستخدم لديه وصول لفيديوهات2 بالفعل
+        if user_id not in load_approved_users(approved_v2_col):
+            add_approved_user(approved_v2_col, user_id) # منح الوصول لفيديوهات2
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
+            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح! يمكنك الآن الضغط على زر **فيديوهات2**.", reply_markup=main_keyboard())
+        else:
+            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
+        return
 
-        add_approved_user(approved_v2_col, user_id) # منح الوصول لفيديوهات2
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
-        bot.send_message(user_id, "✅ تم تفعيل وصولك إلى فيديوهات2 بنجاح! يمكنك الآن الضغط على الزر 'فيديوهات2'.", reply_markup=main_keyboard())
-        return # مهم جداً للخروج بعد التفعيل
-
-    # إذا لم يكن المستخدم مفعلاً وأرسل رسالة غير رسائل التفعيل
-    if not is_user_activated(user_id):
-        bot.send_message(
-            user_id,
-            "🚫 يرجى تفعيل البوت أولاً.\n"
-            "للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا وإكمال عملية الدخول، ثم قم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
-            "💰 رابط بوت التمويل: https://t.me/yynnurybot?start=0006k43lft\n\n" 
-            f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.\n"
-            "يمكنك إعادة توجيه الرسالة أو نسخها ولصقها مباشرة.",
-            reply_markup=types.ReplyKeyboardRemove(),
-            disable_web_page_preview=True
-        )
-    else:
-        # رسالة عامة للمستخدمين المفعلين الذين يرسلون أي شيء غير معروف
-        bot.send_message(user_id, "لم أفهم طلبك. الرجاء استخدام الأزرار في الأسفل.", reply_markup=main_keyboard())
-
-
-# 4. دالة /start (بعد التفعيل)
+# 4. دالة /start (واجهة المستخدم الأولية)
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    # إذا لم يكن المستخدم مفعلًا
-    if not is_user_activated(user_id):
-        bot.send_message(
-            user_id, 
-            "🚫 يجب تفعيل البوت أولاً. يرجى إرسال رسالة التفعيل المطلوبة.\n"
-            "للحصول على رسالة التفعيل، اتبع الخطوات في الرسالة السابقة.",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        return 
+    # التحقق مما إذا كان المستخدم لديه وصول لأي من القسمين لعرض لوحة المفاتيح الرئيسية
+    has_any_access = user_id in load_approved_users(approved_v1_col) or user_id in load_approved_users(approved_v2_col)
 
-    # للمالك (بعد التفعيل)
     if user_id == OWNER_ID:
         bot.send_message(user_id, "مرحبا مالك البوت!", reply_markup=owner_keyboard())
-    else:
-        # للمستخدمين المفعلين (نظهر الأزرار الرئيسية)
+    elif has_any_access:
         welcome_message = (
             f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
             "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
@@ -358,7 +294,7 @@ def start(message):
         bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
         if not has_notified(user_id):
-            total_users = len(get_all_approved_users())
+            total_users = get_total_approved_users()
             new_user_msg = f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
 -----------------------
 • الاسم : {first_name}
@@ -368,45 +304,50 @@ def start(message):
 """
             bot.send_message(OWNER_ID, new_user_msg)
             add_notified_user(user_id)
-
-# 5. معالجات أزرار الفيديوهات
-@bot.message_handler(func=lambda m: is_user_activated(m.from_user.id) and m.text == "فيديوهات1")
-def handle_v1(message):
-    user_id = message.from_user.id
-    # التحقق من أن المستخدم لديه وصول لـ فيديوهات1
-    if user_id in load_approved_users(approved_v1_col):
-        send_videos(user_id, "v1")
     else:
-        # رسالة توجيهية إذا لم يكن لديه وصول لـ فيديوهات1
+        # إذا لم يكن لديه أي وصول، نوجهه للتفعيل الأساسي (لفيديوهات1)
         bot.send_message(
-            user_id, 
-            "🚫 للوصول إلى فيديوهات 1، يرجى تفعيل البوت أولاً عبر بوت التمويل.\n"
-            "يرجى إرسال رسالة التفعيل التي استلمتها من بوت التمويل الرسمي إليّ. (الرسالة التي تحتوي على عبارة 'لقد دخلت بنجاح...')\n"
-            "💰 رابط بوت التمويل: https://t.me/yynnurybot?start=0006k43lft\n"
-            "بعد إرسال الرسالة، حاول الضغط على زر 'فيديوهات1' مرة أخرى.",
+            user_id,
+            "🚫 مرحباً بك! للوصول إلى محتوى البوت، يرجى تفعيل **فيديوهات1** أولاً.\n"
+            f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
+            "ثم أكمل عملية الدخول وقم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
+            f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
+            reply_markup=types.ReplyKeyboardRemove(),
             disable_web_page_preview=True
         )
 
-@bot.message_handler(func=lambda m: is_user_activated(m.from_user.id) and m.text == "فيديوهات2")
+
+# 5. معالجات أزرار الفيديوهات
+@bot.message_handler(func=lambda m: m.text == "فيديوهات1")
+def handle_v1(message):
+    user_id = message.from_user.id
+    if user_id in load_approved_users(approved_v1_col):
+        send_videos(user_id, "v1")
+    else:
+        bot.send_message(
+            user_id,
+            "🚫 للوصول إلى **فيديوهات1**، يرجى تفعيلها أولاً.\n"
+            f"يرجى الدخول إلى بوت التمويل عبر هذا الرابط وإعادة توجيه رسالة التفعيل إليّ:\n{FINANCE_BOT_LINK_V1}\n\n"
+            f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
+            disable_web_page_preview=True
+        )
+
+@bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
     if maintenance_mode and user_id != OWNER_ID:
         bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
         return
     
-    # التحقق من أن المستخدم لديه وصول لـ فيديوهات2 بشكل منفصل
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
-        # رسالة إذا لم يكن مفعلاً لـ فيديوهات2
         bot.send_message(
-            user_id, 
-            "🚫 للوصول إلى فيديوهات 2، يتطلب هذا القسم تفعيلاً خاصاً.\n"
-            "يرجى إرسال رسالة التفعيل الخاصة بفيديوهات2 إليّ.\n"
-            f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V2}'.\n"
-            "يمكنك إعادة توجيه الرسالة أو نسخها ولصقها مباشرة."
-            # يمكنك إضافة رابط لبوت تمويل آخر هنا إذا كان لديك:
-            # "💰 رابط بوت التمويل الخاص بفيديوهات2: [الرابط هنا]\n"
+            user_id,
+            "🚫 للوصول إلى **فيديوهات2**، يتطلب هذا القسم تفعيلاً منفصلاً.\n"
+            f"يرجى الدخول إلى بوت التمويل الخاص بفيديوهات2 عبر هذا الرابط وإعادة توجيه رسالة التفعيل إليّ:\n{FINANCE_BOT_LINK_V2}\n\n"
+            f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V2}'.",
+            disable_web_page_preview=True
         )
 
 
@@ -501,10 +442,11 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        users_to_broadcast = activated_users_col.find({}, {"user_id": 1})
+        # يمكنك اختيار إرسال الرسالة لـ approved_v1_col أو approved_v2_col أو كليهما
+        # حالياً سترسل لجميع المستخدمين الذين لديهم أي نوع من الوصول
+        users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col))
         sent_count = 0
-        for user_doc in users_to_broadcast:
-            user_id = user_doc["user_id"]
+        for user_id in users_to_broadcast:
             try:
                 bot.send_photo(user_id, photo_id, caption=text)
                 sent_count += 1
@@ -512,35 +454,6 @@ def receive_broadcast_text(message):
                 pass
         bot.send_message(OWNER_ID, f"تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.")
         waiting_for_broadcast.clear()
-
-# --- معالج ردود المالك (قبول/رفض) - هذا الجزء لم يعد يستخدم في القبول التلقائي لـ فيديوهات1 و 2 ---
-# إذا كنت تستخدم أزرار قبول/رفض للمالك لمحتوى فيديوهات1 و فيديوهات2 بشكل منفصل،
-# فستحتاج إلى تكييف هذا الجزء. حالياً، تفعيل فيديوهات1 تلقائي وتفعيل فيديوهات2 يدوي
-@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
-def handle_owner_response(call):
-    parts = call.data.split("_")
-    action, category, user_id = parts[0], parts[1], int(parts[2])
-
-    if call.from_user.id != OWNER_ID:
-        bot.answer_callback_query(call.id, "🚫 غير مصرح لك بالقيام بهذا الإجراء.")
-        return
-
-    if action == "approve":
-        # هنا يمكنك تحديد أي مجموعة يتم إضافته إليها بناءً على 'category'
-        if category == "v1":
-            add_approved_user(approved_v1_col, user_id)
-        elif category == "v2":
-            add_approved_user(approved_v2_col, user_id)
-        
-        # تأكد من تفعيل المستخدم في البوت الأساسي أيضاً إذا لم يكن مفعلاً
-        activate_user(user_id) 
-
-        bot.send_message(user_id, "✅ تم قبولك من قبل الإدارة! يمكنك الآن استخدام البوت بكل المزايا.", reply_markup=main_keyboard())
-        bot.edit_message_text("✅ تم قبول المستخدم.", call.message.chat.id, call.message.message_id)
-    else:
-        bot.send_message(user_id, "❌ لم يتم قبولك. الرجاء الاشتراك في جميع قنوات البوت ثم أرسل /start مرة أخرى.")
-        bot.edit_message_text("❌ تم رفض المستخدم.", call.message.chat.id, call.message.message_id)
-
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
 app = Flask('')
