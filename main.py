@@ -779,16 +779,14 @@ def verify_fake_subscription_callback(call):
     if step < len(links): # إذا كان لا يزال هناك قنوات للاشتراك فيها
         fake_sub_pending[user_id] = {"category": category, "step": step}
         send_required_links_fake(user_id, category) # أرسل القناة التالية
-    else: # إذا أكمل المستخدم جميع القنوات الوهمية   
-    bot.send_message(
-        user_id,
-        "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
-        "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️"
-        # لا يوجد reply_markup هنا، مما يعني عدم إرسال لوحة مفاتيح مع هذه الرسالة
-    )
-    notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
-    fake_sub_pending.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
-
+        else:
+        bot.send_message(
+            user_id,
+            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
+            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️"
+        )
+        notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True)
+        fake_sub_pending.pop(user_id, None)
 
 
 # معالج للتحقق من الاشتراك الاختياري (لقسم فيديوهات2 تحديداً، أو أي قسم يستخدم send_required_links)
