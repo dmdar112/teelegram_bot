@@ -15,7 +15,7 @@ TOKEN = os.environ.get("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 OWNER_ID = 7054294622  # عدّل رقمك هنا
 
-maintenance_mode = False
+
 CHANNEL_ID_V1 = os.environ.get("CHANNEL_ID_V1")  # آيدي القناة الخاصة بفيديوهات1
 CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخاصة بفيديوهات2
 
@@ -29,12 +29,12 @@ FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft" # **غير هذ
 
 # --- إعدادات التفعيل لفيديوهات2 ---
 # اسم مستخدم بوت التمويل الخاص بتفعيل فيديوهات2 (إذا كان لديك واحد محدد)
-FINANCE_BOT_USERNAME_V2 = "another_finance_bot" # **غير هذا الاسم إذا كان مختلفًا**
+FINANCE_BOT_USERNAME_V2 = "yynnurybot" # **غير هذا الاسم إذا كان مختلفًا**
 # العبارة المتوقعة في رسالة التفعيل الخاصة بفيديوهات2
 # **مهم جداً: يجب تغيير هذه العبارة لتكون فريدة ومختلفة عن ACTIVATION_PHRASE_V1**
 ACTIVATION_PHRASE_V2 = "✅ تم تفعيل اشتراكك الخاص بمحتوى VIP بنجاح! استمتع بالمشاهدة."
 # رابط بوت التمويل الخاص بتفعيل فيديوهات2
-FINANCE_BOT_LINK_V2 = "https://t.me/another_finance_bot?start=vip_access" # **غير هذا الرابط ليناسب بوت التمويل الثاني أو رابط تفعيل خاص**
+FINANCE_BOT_LINK_V2 = "https://t.me/yynnurybot?start=0006k43lft" # **غير هذا الرابط ليناسب بوت التمويل الثاني أو رابط تفعيل خاص**
 
 
 # --- إعداد MongoDB ---
@@ -43,38 +43,19 @@ client = MongoClient(MONGODB_URI)
 db = client["telegram_bot_db"]
 
 # مجموعات (Collections)
-# activated_users_col لم تعد تستخدم كشرط أساسي لأننا نعتمد على approved_v1_col و approved_v2_col
 approved_v1_col = db["approved_v1"] # للمستخدمين الذين يمكنهم الوصول لفيديوهات1
 approved_v2_col = db["approved_v2"] # للمستخدمين الذين يمكنهم الوصول لفيديوهات2
 notified_users_col = db["notified_users"]
-users_col = db["users"]
 
 
-# --- قوائم الروابط والحالات المؤقتة ---
-subscribe_links_v1 = [
-    "https://t.me/+2L5KrXuCDUA5ZWIy",
-    "https://t.me/+SPTrcs3tJqhlMDVi",
-    "https://t.me/+W2KuzsUu_zcyODIy",
-    "https://t.me/+CFA6qHiV0zw1NjRk",
-]
-
-subscribe_links_v2 = [
-    "https://t.me/R2M199",
-    "https://t.me/SNOKER_VIP",
-]
-
-pending_check = {}
-fake_sub_pending = {}
+# --- الحالات المؤقتة ---
 owner_upload_mode = {}
 waiting_for_broadcast = {}
 waiting_for_delete = {}
-true_sub_pending = {}
 
 
 # --- دوال مساعدة عامة ---
 
-# لم نعد نحتاج is_user_activated و activate_user بهذه الطريقة
-# لأن التفعيل صار مرتبط بالموافقة على قسم معين مباشرة
 def load_approved_users(collection):
     return set(doc["user_id"] for doc in collection.find())
 
@@ -102,7 +83,6 @@ def owner_keyboard():
     markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
     markup.row("رسالة جماعية مع صورة")
-    markup.row("/on", "/off")
     return markup
 
 def get_total_approved_users():
@@ -131,114 +111,10 @@ def send_videos(user_id, category):
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
-# 🟢 وظائف الاشتراك الحقيقي (إن وجدت في كودك الأصلي)
-def check_true_subscription(user_id, first_name):
-    mandatory_channel_id = "-1002142277026"
-    try:
-        member = bot.get_chat_member(mandatory_channel_id, user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            all_channels_subscribed = True
-        else:
-            all_channels_subscribed = False
-    except Exception as e:
-        print(f"Error checking true subscription for {user_id}: {e}")
-        all_channels_subscribed = False
 
-    if all_channels_subscribed:
-        if user_id in true_sub_pending:
-            del true_sub_pending[user_id]
+# --- معالجات الأوامر والرسائل ---
 
-        user_data_db = users_col.find_one({"user_id": user_id})
-        if not user_data_db:
-            users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
-        else:
-            users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
-
-        fake_sub_pending[user_id] = {"category": "v1", "step": 0}
-        send_required_links_fake(user_id, "v1")
-    else:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("اشترك في القناة الإجبارية", url=f"https://t.me/+2L5KrXuCDUA5ZWIy")
-        )
-        markup.add(
-            types.InlineKeyboardButton("✅ تحقق بعد الاشتراك", callback_data="check_mandatory_sub")
-        )
-        bot.send_message(user_id, "⚠️ يرجى الاشتراك في القناة الإجبارية للمتابعة:", reply_markup=markup)
-        true_sub_pending[user_id] = True
-
-@bot.callback_query_handler(func=lambda call: call.data == "check_mandatory_sub")
-def handle_check_mandatory_sub(call):
-    bot.answer_callback_query(call.id, "جار التحقق...")
-    user_id = call.from_user.id
-    first_name = call.from_user.first_name or "مستخدم"
-    check_true_subscription(user_id, first_name)
-
-
-# 🟢 وظائف الاشتراك الوهمي (Fake Subscription)
-def send_required_links_fake(chat_id, category):
-    data = fake_sub_pending.get(chat_id, {"category": category, "step": 0})
-    step = data["step"]
-    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
-
-    if step >= len(links):
-        bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
-        fake_sub_pending.pop(chat_id, None)
-        return
-
-    link = links[step]
-    text = f"""- لطفاً اشترك بالقناة واستخدم البوت .
-- ثم اضغط / تحقق في الاسفل  ~
-- قناة البوت 👾.👇🏻
-📬:  {link}
-"""
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("👾 تحقق الانْ بعد الاشتراك 👾", callback_data=f"verify_fake_{category}_{step}"))
-    bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
-    fake_sub_pending[chat_id] = {"category": category, "step": step}
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("verify_fake_"))
-def verify_fake_subscription_callback(call):
-    bot.answer_callback_query(call.id)
-    user_id = call.from_user.id
-    _, fake_prefix, category, step_str = call.data.split("_")
-    step = int(step_str) + 1
-    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
-
-    if step < len(links):
-        fake_sub_pending[user_id] = {"category": category, "step": step}
-        send_required_links_fake(user_id, category)
-    else:
-        bot.send_message(
-            user_id,
-            "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
-            "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️"
-        )
-        fake_sub_pending.pop(user_id, None)
-
-# --- معالجات الأوامر والرسائل (مرتبة حسب الأولوية) ---
-
-# 1. معالج وضع الصيانة (الأولوية القصوى)
-@bot.message_handler(func=lambda m: maintenance_mode and m.from_user.id != OWNER_ID)
-def handle_maintenance_mode(message):
-    bot.send_message(message.chat.id, "⚙️ البوت حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
-
-# 2. معالجات الأوامر الخاصة بالمالك (مثل /on, /off, /v1, /v2)
-@bot.message_handler(commands=['off'])
-def enable_maintenance(message):
-    if message.from_user.id == OWNER_ID:
-        global maintenance_mode
-        maintenance_mode = True
-        bot.reply_to(message, "✅ تم تفعيل وضع الصيانة. البوت الآن في وضع الصيانة.")
-
-@bot.message_handler(commands=['on'])
-def disable_maintenance(message):
-    if message.from_user.id == OWNER_ID:
-        global maintenance_mode
-        maintenance_mode = False
-        bot.reply_to(message, "✅ تم إيقاف وضع الصيانة. البوت عاد للعمل.")
-
+# معالجات الأوامر الخاصة بالمالك (مثل /v1, /v2)
 @bot.message_handler(commands=['v1', 'v2'])
 def set_upload_mode(message):
     if message.from_user.id == OWNER_ID:
@@ -246,7 +122,7 @@ def set_upload_mode(message):
         owner_upload_mode[message.from_user.id] = mode
         bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
 
-# 3. معالج رسائل التفعيل (V1 و V2)
+# معالج رسائل التفعيل (V1 و V2)
 @bot.message_handler(func=lambda m: (m.text and ACTIVATION_PHRASE_V1 in m.text) or (m.text and ACTIVATION_PHRASE_V2 in m.text))
 def handle_activation_messages(message):
     user_id = message.from_user.id
@@ -274,7 +150,7 @@ def handle_activation_messages(message):
             bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
         return
 
-# 4. دالة /start (واجهة المستخدم الأولية)
+# دالة /start (واجهة المستخدم الأولية)
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
@@ -315,9 +191,21 @@ def start(message):
             reply_markup=types.ReplyKeyboardRemove(),
             disable_web_page_preview=True
         )
+        # إذا أرسل المستخدم رسالة ليست تفعيل وهو لا يملك أي صلاحيات
+        @bot.message_handler(func=lambda m: not (m.text and ACTIVATION_PHRASE_V1 in m.text) and not (m.text and ACTIVATION_PHRASE_V2 in m.text) and not (m.from_user.id == OWNER_ID) and not has_any_access)
+        def handle_unactivated_user_messages(message):
+            bot.send_message(
+                message.chat.id,
+                "🚫 يرجى تفعيل البوت أولاً للوصول إلى المحتوى.\n"
+                f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
+                "ثم أكمل عملية الدخول وقم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
+                f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
+                reply_markup=types.ReplyKeyboardRemove(),
+                disable_web_page_preview=True
+            )
 
 
-# 5. معالجات أزرار الفيديوهات
+# معالجات أزرار الفيديوهات
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
@@ -335,9 +223,6 @@ def handle_v1(message):
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
-    if maintenance_mode and user_id != OWNER_ID:
-        bot.send_message(user_id, "⚙️ زر فيديوهات 2️⃣ حالياً في وضع صيانة. الرجاء المحاولة لاحقاً.")
-        return
     
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
@@ -350,7 +235,7 @@ def handle_v2(message):
             disable_web_page_preview=True
         )
 
-
+# معالجات حذف الفيديوهات (خاصة بالمالك)
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.text == "حذف فيديوهات1")
 def delete_videos_v1(message):
     user_id = message.from_user.id
@@ -404,6 +289,7 @@ def handle_delete_choice(message):
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
 
+# معالج رفع الفيديوهات (خاص بالمالك)
 @bot.message_handler(content_types=['video'])
 def handle_video_upload(message):
     user_id = message.from_user.id
@@ -424,6 +310,7 @@ def handle_video_upload(message):
         print(f"❌ خطأ في رفع الفيديو: {e}")
         bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
 
+# معالج الرسائل الجماعية (خاص بالمالك)
 @bot.message_handler(func=lambda m: m.text == "رسالة جماعية مع صورة" and m.from_user.id == OWNER_ID)
 def ask_broadcast_photo(message):
     bot.send_message(message.chat.id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
@@ -442,8 +329,6 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        # يمكنك اختيار إرسال الرسالة لـ approved_v1_col أو approved_v2_col أو كليهما
-        # حالياً سترسل لجميع المستخدمين الذين لديهم أي نوع من الوصول
         users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col))
         sent_count = 0
         for user_id in users_to_broadcast:
