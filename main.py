@@ -793,8 +793,7 @@ def verify_fake_subscription_callback(call):
         notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True) # إشعار المالك بطلب الموافقة (وهمي)
         fake_sub_pending.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
 
----
-```python
+
 # معالج للتحقق من الاشتراك الاختياري (لقسم فيديوهات2 تحديداً، أو أي قسم يستخدم send_required_links)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify_") and not call.data.startswith("verify_fake_"))
 def verify_subscription_callback(call):
@@ -848,7 +847,6 @@ def verify_subscription_callback(call):
             reply_markup=markup
         )
         notify_owner_for_approval(user_id, call.from_user.first_name, category) # إشعار المالك بطلب الموافقة
-
 
 # إعادة إرسال روابط الاشتراك عند طلب المستخدم (إذا لم يكملها)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("resend_"))
