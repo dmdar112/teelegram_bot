@@ -1,6 +1,6 @@
 import os
 import time
-import json # قد لا نحتاجه بعد الآن لـ activated_users لكن يمكن تركه
+import json
 from flask import Flask
 from threading import Thread
 
@@ -31,8 +31,8 @@ db = client["telegram_bot_db"]
 approved_v1_col = db["approved_v1"]
 approved_v2_col = db["approved_v2"]
 notified_users_col = db["notified_users"]
-users_col = db["users"] # أضفنا هذه المجموعة لتخزين المستخدمين الحقيقيين
-activated_users_col = db["activated_users"] # المجموعة الجديدة للمستخدمين المفعلين
+users_col = db["users"]
+activated_users_col = db["activated_users"]
 
 
 # --- قوائم الروابط والحالات المؤقتة ---
@@ -48,12 +48,12 @@ subscribe_links_v2 = [
     "https://t.me/SNOKER_VIP",
 ]
 
-pending_check = {} # للاشتراك الحقيقي
-fake_sub_pending = {} # للاشتراك الوهمي
+pending_check = {}
+fake_sub_pending = {}
 owner_upload_mode = {}
 waiting_for_broadcast = {}
 waiting_for_delete = {}
-true_sub_pending = {} # لحالة انتظار التحقق من الاشتراك الحقيقي (إذا كان الكود الأصلي يستخدمها)
+true_sub_pending = {}
 
 
 # --- دوال مساعدة عامة ---
@@ -96,7 +96,7 @@ def owner_keyboard():
     markup.row("فيديوهات1", "فيديوهات2")
     markup.row("حذف فيديوهات1", "حذف فيديوهات2")
     markup.row("رسالة جماعية مع صورة")
-    markup.row("/on", "/off") # أضفنا أزرار للتحكم بوضع الصيانة
+    markup.row("/on", "/off")
     return markup
 
 def get_all_approved_users():
@@ -124,21 +124,17 @@ def send_videos(user_id, category):
                 caption="",
                 caption_entities=None
             )
-            time.sleep(1)  # لمنع الحظر أو التقييد
+            time.sleep(1)
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
 # 🟢 وظائف الاشتراك الحقيقي (إن وجدت في كودك الأصلي)
 def check_true_subscription(user_id, first_name):
-    # هذه دالة افتراضية، يجب عليك التأكد من أنها تعكس منطقك الفعلي
-    # للتحقق من الاشتراك في القنوات الإجبارية
-    
-    # مثال افتراضي: التحقق من قناة إجبارية واحدة
-    mandatory_channel_id = "-1002142277026" # استبدل بآيدي قناتك الإجبارية الحقيقية
+    mandatory_channel_id = "-1002142277026"
     try:
         member = bot.get_chat_member(mandatory_channel_id, user_id)
         if member.status in ["member", "administrator", "creator"]:
-            all_channels_subscribed = True # افترض أن كل القنوات الإجبارية تم الاشتراك فيها
+            all_channels_subscribed = True
         else:
             all_channels_subscribed = False
     except Exception as e:
@@ -147,29 +143,26 @@ def check_true_subscription(user_id, first_name):
 
     if all_channels_subscribed:
         if user_id in true_sub_pending:
-            del true_sub_pending[user_id] # إزالة المستخدم بعد اكتمال التحقق
+            del true_sub_pending[user_id]
 
-        # تحديث حالة الاشتراك في قاعدة البيانات
         user_data_db = users_col.find_one({"user_id": user_id})
         if not user_data_db:
             users_col.insert_one({"user_id": user_id, "joined": True, "first_name": first_name})
         else:
             users_col.update_one({"user_id": user_id}, {"$set": {"joined": True, "first_name": first_name}})
 
-        # بدء عملية الاشتراك الوهمي (فيديوهات1) بعد الانتهاء من الإجباري
         fake_sub_pending[user_id] = {"category": "v1", "step": 0}
         send_required_links_fake(user_id, "v1")
     else:
-        # هنا يتم توجيه المستخدم للاشتراك في القنوات الإجبارية
         markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton("اشترك في القناة الإجبارية", url=f"https://t.me/+2L5KrXuCDUA5ZWIy") # ضع رابط قناتك الإجبارية هنا
+            types.InlineKeyboardButton("اشترك في القناة الإجبارية", url=f"https://t.me/+2L5KrXuCDUA5ZWIy")
         )
         markup.add(
             types.InlineKeyboardButton("✅ تحقق بعد الاشتراك", callback_data="check_mandatory_sub")
         )
         bot.send_message(user_id, "⚠️ يرجى الاشتراك في القناة الإجبارية للمتابعة:", reply_markup=markup)
-        true_sub_pending[user_id] = True # وضع المستخدم في حالة الانتظار للتحقق
+        true_sub_pending[user_id] = True
 
 @bot.callback_query_handler(func=lambda call: call.data == "check_mandatory_sub")
 def handle_check_mandatory_sub(call):
@@ -183,10 +176,12 @@ def handle_check_mandatory_sub(call):
 def send_required_links_fake(chat_id, category):
     data = fake_sub_pending.get(chat_id, {"category": category, "step": 0})
     step = data["step"]
-    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2 # استخدم الروابط الخاصة بالفيديوهات هنا
+    links = subscribe_links_v1 if category == "v1" else subscribe_links_v2
 
     if step >= len(links):
-        notify_owner_for_approval(chat_id, "مستخدم", category)
+        # هذه الدالة notify_owner_for_approval غير معرفة في الكود الخاص بك.
+        # قد تحتاج إلى تعريفها أو استبدالها بما يناسب منطقك.
+        # notify_owner_for_approval(chat_id, "مستخدم", category)
         bot.send_message(chat_id, "تم إرسال طلبك للموافقة. الرجاء الانتظار.", reply_markup=main_keyboard())
         fake_sub_pending.pop(chat_id, None)
         return
@@ -220,7 +215,9 @@ def verify_fake_subscription_callback(call):
             "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
             "إذا كنت مشتركًا سيتم قبولك تلقائيًا، وإذا كنت غير مشترك سيتم رفضك ولا يمكنك الوصول للمقاطع ‼️"
         )
-        notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True)
+        # هذه الدالة notify_owner_for_approval غير معرفة في الكود الخاص بك.
+        # قد تحتاج إلى تعريفها أو استبدالها بما يناسب منطقك.
+        # notify_owner_for_approval(user_id, call.from_user.first_name, category, is_fake=True)
         fake_sub_pending.pop(user_id, None)
 
 # --- معالجات الأوامر والرسائل (مرتبة حسب الأولوية) ---
@@ -255,17 +252,44 @@ def set_upload_mode(message):
 # 3. معالج رسالة التفعيل (للمستخدمين غير المفعلين) - هذا هو الأهم
 @bot.message_handler(func=lambda m: not is_user_activated(m.from_user.id))
 def handle_activation_check(message):
-    if message.forward_from_chat and message.forward_from_chat.username == FINANCE_BOT_USERNAME:
-        expected_phrase = "لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة"
-        if expected_phrase in message.text:
-            activate_user(message.from_user.id) # استخدم دالة التفعيل الجديدة
-            bot.send_message(message.from_user.id, "✅ تم التفعيل بنجاح! يمكنك الآن استخدام البوت. اضغط /start للمتابعة.")
+    # رسائل طباعة لتشخيص المشكلة
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Received message from non-activated user: {message.from_user.id}")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Full Message object: {message}") # اطبع كائن الرسالة كاملا لفحصه
+
+    if message.forward_from_chat:
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Message is forwarded.")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Forwarded from chat username: {message.forward_from_chat.username}")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Expected Finance Bot Username: {FINANCE_BOT_USERNAME}")
+
+        # تأكد من أن هذه هي العبارة الصحيحة بالضبط
+        expected_phrase = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
+
+        # قد تكون الرسالة نفسها بدون نص (مثلاً إذا كانت صورة مع كابشن)، لذا نتحقق من وجود النص أولاً
+        message_text = message.text if message.text else ""
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Message text received: '{message_text}'")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Expected phrase for comparison: '{expected_phrase}'")
+
+        if message.forward_from_chat.username == FINANCE_BOT_USERNAME:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ Forwarded from correct Finance Bot username.")
+            if expected_phrase in message_text:
+                activate_user(message.from_user.id)
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {message.from_user.id} activated and saved to MongoDB.")
+                bot.send_message(message.from_user.id, "✅ تم التفعيل بنجاح! يمكنك الآن استخدام البوت. اضغط /start للمتابعة.")
+            else:
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Forwarded message content mismatch.")
+                bot.send_message(message.from_user.id, "❌ تم إعادة توجيه الرسالة لكن محتواها غير مطابق.\nالرجاء التأكد من الرسالة الصحيحة.")
         else:
-            bot.send_message(message.from_user.id, "❌ تم إعادة توجيه الرسالة لكن محتواها غير مطابق.\nالرجاء التأكد من الرسالة الصحيحة.")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Forwarded from incorrect chat username. Actual: {message.forward_from_chat.username}")
+            bot.send_message(
+                message.from_user.id,
+                f"🚫 يجب تفعيل البوت أولاً.\nالرجاء إعادة توجيه رسالة التفعيل الأصلية من بوت التمويل الرسمي (مثل: @{FINANCE_BOT_USERNAME}).\n"
+                "لا تقم بنسخ الرسالة يدويًا."
+            )
     else:
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ❌ Message is not forwarded. Message type: {message.content_type}")
         bot.send_message(
             message.from_user.id,
-            "🚫 يجب تفعيل البوت أولاً.\nالرجاء إعادة توجيه رسالة التفعيل الأصلية من بوت التمويل الرسمي (مثل: https://t.me/yynnurybot?start=0007g263pf).\n"
+            f"🚫 يجب تفعيل البوت أولاً.\nالرجاء إعادة توجيه رسالة التفعيل الأصلية من بوت التمويل الرسمي (مثل: @{FINANCE_BOT_USERNAME}).\n"
             "لا تقم بنسخ الرسالة يدويًا."
         )
 
@@ -316,10 +340,14 @@ def handle_v1(message):
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 1!\nللوصول إلى المحتوى، الرجاء الاشتراك في القنوات التالية:")
         data = pending_check.get(user_id)
         if data and data["category"] == "v1":
-            send_required_links(user_id, "v1")
+            # هذه الدالة send_required_links غير معرفة في الكود الخاص بك.
+            # ستحتاج إلى تعريفها أو استخدام send_required_links_fake إذا كان هذا هو المقصود.
+            # send_required_links(user_id, "v1")
+            pass # Placeholder if no action is needed here
         else:
             pending_check[user_id] = {"category": "v1", "step": 0}
-            send_required_links(user_id, "v1")
+            # send_required_links(user_id, "v1") # نفس الملاحظة أعلاه
+            pass # Placeholder if no action is needed here
 
 @bot.message_handler(func=lambda m: is_user_activated(m.from_user.id) and m.text == "فيديوهات2")
 def handle_v2(message):
@@ -333,10 +361,12 @@ def handle_v2(message):
         bot.send_message(user_id, "👋 أهلاً بك في قسم فيديوهات 2!\nللوصول إلى الفيديوهات، الرجاء الاشتراك في القنوات التالية:")
         data = pending_check.get(user_id)
         if data and data["category"] == "v2":
-            send_required_links(user_id, "v2")
+            # send_required_links(user_id, "v2") # نفس الملاحظة أعلاه
+            pass # Placeholder if no action is needed here
         else:
             pending_check[user_id] = {"category": "v2", "step": 0}
-            send_required_links(user_id, "v2")
+            # send_required_links(user_id, "v2") # نفس الملاحظة أعلاه
+            pass # Placeholder if no action is needed here
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and m.text == "حذف فيديوهات1")
 def delete_videos_v1(message):
@@ -429,8 +459,7 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        # هنا يجب استخدام activated_users_col للحصول على جميع المستخدمين المفعلين للبث
-        users_to_broadcast = activated_users_col.find({}, {"user_id": 1}) # جلب فقط user_id
+        users_to_broadcast = activated_users_col.find({}, {"user_id": 1})
         sent_count = 0
         for user_doc in users_to_broadcast:
             user_id = user_doc["user_id"]
