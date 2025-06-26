@@ -474,23 +474,17 @@ def check_true_subscription(user_id, first_name):
         except Exception as e:
             print(f"Error cleaning up old fake_sub_pending message_to_delete_id: {e}")
         finally:
-            del fake_sub_pending[user_id]["message_to_delete_id"]
-    # <--- نهاية الإضافة --->
+                    del fake_sub_pending[user_id]["message_to_delete_id"]
 
-                if not true_subscribe_links: # إذا لم تكن هناك قنوات اشتراك إجباري معرفة
-        # بدلاً من إرسال رسالة البدء مباشرة، نبدأ الاشتراك الوهمي
-        # لأننا نريد أن يمر المستخدم بالاشتراك الوهمي حتى لو لم يكن هناك اشتراك إجباري
-        # لكن في هذه الحالة نبدأ الاشتراك الوهمي مباشرة
-        # هنا نحفظ الرسالة التي تم إرسالها
+    if not true_subscribe_links:
         sent_message = bot.send_message(user_id, "🔰| تم الانتهاء من الاشتراك الإجباري بنجاح!\n\n🚀| الآن يرجى الاشتراك في القنوات الوهمية:")
-        # هنا نخزن رقم الرسالة (message_id) في القاموس fake_sub_pending
         fake_sub_pending[user_id] = {"category": "v1", "step": 0, "message_to_delete_id": sent_message.message_id}
         send_required_links_fake(user_id, "v1")
         return
 
-
     # تهيئة الخطوة الحالية: إذا لم يكن المستخدم موجودًا في true_sub_pending، ابدأ من 0
     step = true_sub_pending.get(user_id, 0)
+
     
     # التأكد أن خطوة البداية لا تتجاوز عدد القنوات المتاحة
     if step >= len(true_subscribe_links):
