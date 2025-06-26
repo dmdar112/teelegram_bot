@@ -776,10 +776,12 @@ def verify_fake_subscription_callback(call):
     step = int(step_str) + 1
     links = load_subscribe_links_v1()  # لأن الاشتراك الوهمي حاليًا فقط لفيديوهات1
 
-    if step < len(links): # إذا كان لا يزال هناك قنوات للاشتراك فيها
+    # السطر 779:
+if step < len(links): # إذا كان لا يزال هناك قنوات للاشتراك فيها
+    # السطر 780: هذا السطر يجب أن يكون مزاحاً بـ 4 مسافات بعد 'if'
     fake_sub_pending[user_id] = {"category": category, "step": step}
     send_required_links_fake(user_id, category) # أرسل القناة التالية
-else: # إذا أكمل المستخدم جميع القنوات الوهمية
+else: # هذا السطر يجب أن يكون على نفس مستوى 'if'
     bot.send_message(
         user_id,
         "⏳ يرجى الانتظار قليلاً حتى نتحقق من اشتراكك في جميع القنوات.\n"
