@@ -342,6 +342,7 @@ def handle_activation_messages(message):
 def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
+    username = message.from_user.username # الحصول على اسم المستخدم
 
     requires_mandatory_check = is_post_subscribe_check_enabled()
     
@@ -370,12 +371,14 @@ def start(message):
 
         if not has_notified(user_id):
             total_users = get_total_approved_users()
-            new_user_msg = f"""👾 تم دخول شخص جديد إلى البوت الخاص بك
------------------------
-• الاسم : {first_name}
-• الايدي : {user_id}
------------------------
-• عدد الأعضاء الكلي: {total_users}
+            # الرسالة الجديدة مع إضافة اسم المستخدم
+            new_user_msg = f"""🎉 تم دخول شخص جديد إلى البوت!
+
+الاسم: {first_name}
+اليوزر: @{username if username else 'لا يوجد'}
+الأيدي: {user_id}
+
+العدد الكلي للأعضاء: {total_users}
 """
             bot.send_message(OWNER_ID, new_user_msg)
             add_notified_user(user_id)
