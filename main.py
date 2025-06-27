@@ -81,14 +81,19 @@ def add_notified_user(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
 def is_mandatory_subscribed(user_id):
-    """التحقق مما إذا كان المستخدم قد أتم الاشتراك الإجباري في جميع القنوات."""
-    # تعتمد الآن على وجود المستند في mandatory_subscribed_col فقط
-    # لأن التقدم الفردي للقنوات يتم إدارته بواسطة user_mandatory_progress_col
-    return mandatory_subscribed_col.find_one({"user_id": user_id}) is not None
+    """
+    التحقق مما إذا كان المستخدم قد أتم الاشتراك الإجباري في جميع القنوات.
+    هذه الدالة ستعتمد الآن على الدالة الجديدة للتحقق المباشر.
+    """
+    return check_all_mandatory_subscriptions_live(user_id)
 
 def set_mandatory_subscribed(user_id):
-    """تسجيل أن المستخدم قد أتم الاشتراك الإجباري في جميع القنوات."""
-    if not is_mandatory_subscribed(user_id):
+    """
+    تسجيل أن المستخدم قد أتم الاشتراك الإجباري في جميع القنوات.
+    هذه الدالة ستظل موجودة لتسجيل الإتمام الأولي، ولكن التحقق الفعلي
+    سيكون عبر check_all_mandatory_subscriptions_live.
+    """
+    if not mandatory_subscribed_col.find_one({"user_id": user_id}):
         mandatory_subscribed_col.insert_one({"user_id": user_id, "timestamp": time.time()})
     # مسح تقدم المستخدم بعد إكمال جميع القنوات لضمان بدء جديد إذا تم إعادة تعيينه
     user_mandatory_progress_col.delete_one({"user_id": user_id})
@@ -218,28 +223,65 @@ def update_user_mandatory_progress(user_id, index):
         upsert=True
     )
 
+def check_all_mandatory_subscriptions_live(user_id):
+    """
+    يتحقق مما إذا كان المستخدم مشتركًا في جميع القنوات الإجبارية المحددة.
+    """
+    channels = get_mandatory_channels()
+    if not channels:
+        return True # لا توجد قنوات إجبارية، لذا يعتبر مشتركاً
+
+    for channel in channels:
+        try:
+            member = bot.get_chat_member(channel["id"], user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                return False # المستخدم ليس مشتركاً في قناة واحدة على الأقل
+        except apihelper.ApiTelegramException as e:
+            # إذا كان البوت لا يستطيع الوصول للقناة أو القناة غير موجودة، نعتبرها مشكلة
+            # ويمكن التعامل معها كأن المستخدم غير مشترك لتجنب المشاكل
+            print(f"Error checking subscription for user {user_id} in channel {channel['id']}: {e}")
+            # إذا كانت القناة غير موجودة أو البوت ليس فيها، نعتبر المستخدم غير مشترك
+            if "chat not found" in str(e).lower() or "bot is not a member" in str(e).lower():
+                return False
+            # لأي خطأ آخر، قد يكون مشكلة مؤقتة، يمكن أن نختار السماح أو الرفض
+            # هنا نختار الرفض لضمان الصرامة
+            return False
+        except Exception as e:
+            print(f"Unexpected error checking subscription for user {user_id} in channel {channel['id']}: {e}")
+            return False
+    return True # المستخدم مشترك في جميع القنوات
+
 def send_mandatory_subscription_message(user_id):
     """يرسل رسالة الاشتراك الإجباري مع الأزرار اللازمة، مع إظهار قناة واحدة فقط."""
     if not is_post_subscribe_check_enabled():
         print(f"Post-subscribe check is disabled for user {user_id}. Skipping mandatory message.")
-        if user_id in load_approved_users(approved_v1_col):
-            set_mandatory_subscribed(user_id) # اعتباره مشتركاً لأنه لا يوجد تحقق
-            bot.send_message(user_id, "✅ تم تفعيل وصولك، ولا يتطلب الاشتراك الإجباري حالياً.", reply_markup=main_keyboard())
+        # إذا كان التحقق معطلاً، نعتبر المستخدم قد أتم الاشتراك
+        set_mandatory_subscribed(user_id)
+        # لا ترسل رسالة "تم تفعيل وصولك" هنا، بل اتركها لدالة start
         return
     
     channels = get_mandatory_channels()
     if not channels:
+        # إذا لم تكن هناك قنوات إجبارية، نعتبر المستخدم قد أتم الاشتراك
+        set_mandatory_subscribed(user_id)
         bot.send_message(user_id, "لا توجد قنوات إجبارية محددة حالياً.", reply_markup=main_keyboard())
         return
 
     current_index = get_user_mandatory_progress(user_id)
 
-    if current_index >= len(channels):
-        # المستخدم قد أتم جميع الاشتراكات
-        set_mandatory_subscribed(user_id)
-        bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
+    # إذا كان المستخدم قد أتم جميع الاشتراكات بالفعل، لا ترسل الرسالة
+    if check_all_mandatory_subscriptions_live(user_id):
+        set_mandatory_subscribed(user_id) # تأكيد تسجيله كمشترك
+        # لا ترسل رسالة "تهانينا" هنا، بل اتركها لدالة start
         pending_mandatory_check.pop(user_id, None)
         return
+
+    # إذا كان المؤشر أكبر من أو يساوي عدد القنوات، فهذا يعني أنه يحتاج لإعادة التحقق
+    # أو أن هناك مشكلة في التقدم، نعيده للقناة الأولى
+    if current_index >= len(channels):
+        current_index = 0
+        update_user_mandatory_progress(user_id, current_index)
+
 
     # إظهار القناة الحالية فقط
     channel_to_show = channels[current_index]
@@ -249,7 +291,7 @@ def send_mandatory_subscription_message(user_id):
         "🚸| عذراً عزيزي..\n"
         "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
         f"- Link: {channel_to_show['link']}\n\n"
-        "‼️| اشترك ثم ارسل /start"
+        "‼️| اشترك ثم ارسل /start" # تم تغيير النص ليوجه المستخدم لـ /start
     )
 
     markup = types.InlineKeyboardMarkup()
@@ -289,7 +331,6 @@ def handle_activation_messages(message):
     user_name = message.from_user.first_name if message.from_user.first_name else "لا يوجد اسم"
     user_username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
 
-
     # التحقق من مصدر إعادة التوجيه
     source_bot_id = None
     if message.forward_from:
@@ -302,11 +343,14 @@ def handle_activation_messages(message):
         bot.send_message(user_id, "⚠️ يرجى **إعادة توجيه** رسالة التفعيل مباشرة من بوت التمويل، وليس نسخها ولصقها.")
         return
 
+    requires_mandatory_check = is_post_subscribe_check_enabled()
+    user_is_fully_subscribed_live = check_all_mandatory_subscriptions_live(user_id)
+
     # معالجة تفعيل فيديوهات1
     if source_bot_id == FINANCE_BOT_ID_V1 and ACTIVATION_PHRASE_V1 in message_text:
         if user_id not in load_approved_users(approved_v1_col):
             add_approved_user(approved_v1_col, user_id) 
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access (pending mandatory sub).")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access.")
             bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح!")
 
             # رسالة للمالك عند قبول مستخدم جديد تلقائيًا (فيديوهات1)
@@ -319,22 +363,14 @@ def handle_activation_messages(message):
             )
             bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
 
-            # تحقق هنا مما إذا كان الاشتراك الإجباري مفعلاً
-            if is_post_subscribe_check_enabled() and not is_mandatory_subscribed(user_id):
-                # إذا كان التحقق مفعلاً ولم يكمل المستخدم الاشتراك الإجباري، ارسل رسالة القناة الأولى
-                update_user_mandatory_progress(user_id, 0) # تأكد أن المستخدم يبدأ من القناة الأولى
-                send_mandatory_subscription_message(user_id) 
-            else:
-                set_mandatory_subscribed(user_id) # اعتباره مشتركاً إذا كان التحقق معطلاً أو كان قد أكمله مسبقاً
-                bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى فيديوهات1!", reply_markup=main_keyboard())
-        elif not is_mandatory_subscribed(user_id) and is_post_subscribe_check_enabled(): # إذا كان لديه وصول ولكن لم يكمل الاشتراك الإجباري والتحقق مفعّل
+        # بعد التفعيل، تحقق من الاشتراك الإجباري
+        if requires_mandatory_check and not user_is_fully_subscribed_live:
             bot.send_message(user_id, "👍🏼 لديك وصول إلى فيديوهات1، ولكن يرجى إكمال الاشتراك الإجباري أولاً.")
-            send_mandatory_subscription_message(user_id)
-        elif not is_mandatory_subscribed(user_id) and not is_post_subscribe_check_enabled(): # لديه وصول ولكن لم يكمل الاشتراك الإجباري والتحقق معطل
-            set_mandatory_subscribed(user_id) # اعتباره مشتركاً
-            bot.send_message(user_id, "👍🏼 لديك وصول إلى فيديوهات1. التحقق الإجباري معطل حالياً.", reply_markup=main_keyboard())
-        else: # لديه وصول وأكمل الاشتراك الإجباري
-            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات1.", reply_markup=main_keyboard())
+            update_user_mandatory_progress(user_id, 0) # تأكد أن المستخدم يبدأ من القناة الأولى
+            send_mandatory_subscription_message(user_id) 
+        else:
+            set_mandatory_subscribed(user_id) # اعتباره مشتركاً إذا كان التحقق معطلاً أو كان قد أكمله مسبقاً
+            bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى فيديوهات1!", reply_markup=main_keyboard())
         return
 
     # معالجة تفعيل فيديوهات2
@@ -342,7 +378,7 @@ def handle_activation_messages(message):
         if user_id not in load_approved_users(approved_v2_col):
             add_approved_user(approved_v2_col, user_id) 
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
-            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح! يمكنك الآن الضغط على زر **فيديوهات2**.", reply_markup=main_keyboard())
+            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح!")
 
             # رسالة للمالك عند قبول مستخدم جديد تلقائيًا (فيديوهات2)
             owner_notification_message = (
@@ -353,9 +389,15 @@ def handle_activation_messages(message):
                 "تم منحه وصولاً إلى: فيديوهات2"
             )
             bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
-
+        
+        # بعد التفعيل، تحقق من الاشتراك الإجباري (حتى لو كان لـ V2 فقط، قد يكون مطلوبًا لجميع الأقسام)
+        if requires_mandatory_check and not user_is_fully_subscribed_live:
+            bot.send_message(user_id, "👍🏼 لديك وصول إلى فيديوهات2، ولكن يرجى إكمال الاشتراك الإجباري أولاً.")
+            update_user_mandatory_progress(user_id, 0) # تأكد أن المستخدم يبدأ من القناة الأولى
+            send_mandatory_subscription_message(user_id)
         else:
-            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
+            set_mandatory_subscribed(user_id) # اعتباره مشتركاً إذا كان التحقق معطلاً أو كان قد أكمله مسبقاً
+            bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى فيديوهات2!", reply_markup=main_keyboard())
         return
     else:
         # رسالة معاد توجيهها ليست من بوت التمويل المطلوب أو لا تحتوي على العبارة الصحيحة
@@ -369,13 +411,14 @@ def start(message):
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
     requires_mandatory_check = is_post_subscribe_check_enabled()
+    user_is_fully_subscribed_live = check_all_mandatory_subscriptions_live(user_id)
     
-    has_v1_access_and_mandatory_done = user_id in load_approved_users(approved_v1_col) and \
-                                      (is_mandatory_subscribed(user_id) or not requires_mandatory_check)
+    # المستخدم لديه وصول لأحد الأقسام ومستوفي شروط الاشتراك الإجباري (أو التحقق معطل)
+    has_any_access = user_id in load_approved_users(approved_v1_col) or \
+                     user_id in load_approved_users(approved_v2_col)
     
-    has_v2_access = user_id in load_approved_users(approved_v2_col)
-    
-    can_access_main_keyboard = has_v1_access_and_mandatory_done or has_v2_access
+    can_access_main_keyboard = has_any_access and \
+                               (user_is_fully_subscribed_live or not requires_mandatory_check)
 
     if user_id == OWNER_ID:
         bot.send_message(
@@ -391,10 +434,14 @@ def start(message):
             "⚠️ المحتوى +18 - للكبار فقط!"
         )
         bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
-
-    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id) and requires_mandatory_check:
+    elif requires_mandatory_check and not user_is_fully_subscribed_live:
+        # إذا كان التحقق مفعلاً والمستخدم غير مشترك في جميع القنوات، أعد توجيهه
+        update_user_mandatory_progress(user_id, 0) # إعادة تعيين التقدم لضمان بدء من القناة الأولى
         send_mandatory_subscription_message(user_id)
+        # إزالة الكيبورد العادي لمنعه من استخدام الأزرار
+        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً.", reply_markup=types.ReplyKeyboardRemove())
     else:
+        # المستخدم لم يفعل البوت بعد
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -414,6 +461,8 @@ def start(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
+        # إزالة الكيبورد العادي
+        bot.send_message(user_id, "...", reply_markup=types.ReplyKeyboardRemove())
 
 
 # معالج لزر التحقق من الاشتراك الإجباري
@@ -424,25 +473,29 @@ def handle_check_mandatory_sub(call):
     channels = get_mandatory_channels()
     current_index = get_user_mandatory_progress(user_id)
 
-    if current_index >= len(channels): # المستخدم أتم جميع الاشتراكات بالفعل
+    # التحقق من جميع القنوات أولاً
+    if check_all_mandatory_subscriptions_live(user_id):
         set_mandatory_subscribed(user_id)
-        # لا نرسل رسالة "تهانينا" هنا، بل بعد إعادة توجيه المستخدم إذا لزم الأمر
-        bot.edit_message_reply_markup(
+        bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            reply_markup=None # إزالة الزر
+            text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
+            reply_markup=None
         )
-        # 📌 تم إضافة هذا السطر هنا
-        bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
+        bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
         return
 
-    # التحقق من القناة الحالية فقط
+    # إذا لم يكن مشتركاً في كل القنوات، نواصل التحقق التسلسلي
+    if current_index >= len(channels):
+        current_index = 0 # إعادة تعيين إذا تجاوز المؤشر العدد
+        update_user_mandatory_progress(user_id, current_index)
+
     channel_to_check = channels[current_index]
     try:
         member = bot.get_chat_member(channel_to_check["id"], user_id)
         if member.status in ["member", "administrator", "creator"]:
-            # المستخدم مشترك في القناة الحالية
+            # المستخدم مشترك في القناة الحالية، انتقل للقناة التالية
             next_index = current_index + 1
             update_user_mandatory_progress(user_id, next_index)
             
@@ -455,7 +508,7 @@ def handle_check_mandatory_sub(call):
                 )
                 send_mandatory_subscription_message(user_id) # أرسل القناة التالية
             else:
-                # أتم جميع الاشتراكات
+                # أتم جميع الاشتراكات (بعد التحقق التسلسلي)
                 set_mandatory_subscribed(user_id)
                 bot.edit_message_text(
                     chat_id=call.message.chat.id,
@@ -463,10 +516,10 @@ def handle_check_mandatory_sub(call):
                     text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
                     reply_markup=None
                 )
-                # 📌 تم إضافة هذا السطر هنا أيضًا لضمان ظهور الأزرار فورًا
                 bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
                 pending_mandatory_check.pop(user_id, None)
         else:
+            # ليس مشتركاً في القناة الحالية
             bot.send_message(user_id, "⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.", reply_markup=types.ReplyKeyboardRemove())
             send_mandatory_subscription_message(user_id) # أعد إرسال نفس القناة
     except apihelper.ApiTelegramException as e:
@@ -479,13 +532,14 @@ def handle_check_mandatory_sub(call):
         send_mandatory_subscription_message(user_id)
 
 
-# معالج لرسائل المستخدمين غير المفعلين والذين لم يكملوا الاشتراك الإجباري
+# معالج لرسائل المستخدمين الذين تم قبولهم ولكن لم يكملوا الاشتراك الإجباري (أو غادروا قناة)
 @bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
                                      not (m.forward_from or m.forward_from_chat) and \
                                      (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
-                                     (m.from_user.id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(m.from_user.id) and is_post_subscribe_check_enabled()))
+                                     (is_post_subscribe_check_enabled() and not check_all_mandatory_subscriptions_live(m.from_user.id)))
 def handle_pending_mandatory_messages(message):
     bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.", reply_markup=types.ReplyKeyboardRemove())
+    update_user_mandatory_progress(message.chat.id, 0) # إعادة تعيين التقدم
     send_mandatory_subscription_message(message.chat.id)
 
 
@@ -515,46 +569,59 @@ def handle_unactivated_user_messages(message):
         reply_markup=markup_for_unactivated,
         disable_web_page_preview=True
     )
+    bot.send_message(message.chat.id, "...", reply_markup=types.ReplyKeyboardRemove())
 
 
 # معالجات أزرار الفيديوهات للمستخدمين العاديين
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
-    if user_id in load_approved_users(approved_v1_col) and (is_mandatory_subscribed(user_id) or not is_post_subscribe_check_enabled()):
-        send_videos(user_id, "v1")
-    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id) and is_post_subscribe_check_enabled():
-        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.")
-        send_mandatory_subscription_message(user_id)
+    requires_mandatory_check = is_post_subscribe_check_enabled()
+    user_is_fully_subscribed_live = check_all_mandatory_subscriptions_live(user_id)
+
+    if user_id in load_approved_users(approved_v1_col):
+        if requires_mandatory_check and not user_is_fully_subscribed_live:
+            bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.", reply_markup=types.ReplyKeyboardRemove())
+            update_user_mandatory_progress(user_id, 0) # إعادة تعيين التقدم
+            send_mandatory_subscription_message(user_id)
+        else:
+            send_videos(user_id, "v1")
     else:
         # إذا لم يكن لديه أي وصول بعد (يوجه لتفعيل فيديوهات1)
         markup_for_unactivated = initial_activation_keyboard()
-        # النص الجديد لرسالة التفعيل مع تضمين الرابط مباشرة
         activation_message_text = (
-    "📢 مرحبًا عزيزي!\n\n"
-    "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
-    "🔰 خطوات التفعيل:\n\n"
-    "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
-    "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
-    "3️⃣ بعد الاشتراك في جميع القنوات، ستصلك رسالة من بوت التمويل تؤكد تم التفعيل.\n\n"
-    "4️⃣ قم بإعادة (تحويل) رسالة التفعيل إلى هنا – بدون نسخ أو تعديل.\n\n"
-    "✅ بعد تحويل الرسالة سيتم قبولك تلقائيًا.\n\n"
-    "👇 اضغط هنا لتفعيل بوت التمويل:\n"
-    "🔗 https://t.me/yynnurybot?start=0006k43lft"
-)
+            "📢 مرحبًا عزيزي!\n\n"
+            "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
+            "🔰 خطوات التفعيل:\n\n"
+            "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
+            "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
+            "3️⃣ بعد الاشتراك في جميع القنوات، ستصلك رسالة من بوت التمويل تؤكد تم التفعيل.\n\n"
+            "4️⃣ قم بإعادة (تحويل) رسالة التفعيل إلى هنا – بدون نسخ أو تعديل.\n\n"
+            "✅ بعد تحويل الرسالة سيتم قبولك تلقائيًا.\n\n"
+            "👇 اضغط هنا لتفعيل بوت التمويل:\n"
+            "🔗 https://t.me/yynnurybot?start=0006k43lft"
+        )
         bot.send_message(
             user_id,
             activation_message_text,
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
+        bot.send_message(user_id, "...", reply_markup=types.ReplyKeyboardRemove())
 
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
+    requires_mandatory_check = is_post_subscribe_check_enabled()
+    user_is_fully_subscribed_live = check_all_mandatory_subscriptions_live(user_id)
     
     if user_id in load_approved_users(approved_v2_col):
-        send_videos(user_id, "v2")
+        if requires_mandatory_check and not user_is_fully_subscribed_live:
+            bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات2.", reply_markup=types.ReplyKeyboardRemove())
+            update_user_mandatory_progress(user_id, 0) # إعادة تعيين التقدم
+            send_mandatory_subscription_message(user_id)
+        else:
+            send_videos(user_id, "v2")
     else:
         # استخدم نفس رسالة التفعيل وهيكلها لـ فيديوهات2
         markup_for_unactivated = initial_activation_keyboard()
@@ -576,6 +643,7 @@ def handle_v2(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
+        bot.send_message(user_id, "...", reply_markup=types.ReplyKeyboardRemove())
 
 # معالجات حذف الفيديوهات (خاصة بالمالك)
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
@@ -652,7 +720,8 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col).union(load_approved_users(mandatory_subscribed_col))) # تضمين جميع المستخدمين
+        # تضمين جميع المستخدمين الذين لديهم وصول لأي من الفيديوهات
+        users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col))
         sent_count = 0
         for user_id_to_send in users_to_broadcast: 
             try:
