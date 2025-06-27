@@ -286,6 +286,9 @@ def set_upload_mode(message):
 def handle_activation_messages(message):
     user_id = message.from_user.id
     message_text = message.text if message.text else ""
+    user_name = message.from_user.first_name if message.from_user.first_name else "لا يوجد اسم"
+    user_username = f"@{message.from_user.username}" if message.from_user.username else "لا يوجد يوزر"
+
 
     # التحقق من مصدر إعادة التوجيه
     source_bot_id = None
@@ -305,6 +308,17 @@ def handle_activation_messages(message):
             add_approved_user(approved_v1_col, user_id) 
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access (pending mandatory sub).")
             bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح!")
+
+            # رسالة للمالك عند قبول مستخدم جديد تلقائيًا (فيديوهات1)
+            owner_notification_message = (
+                "لقد تم قبول المستخدم تلقائيًا:\n\n"
+                f"الاسم: {user_name}\n"
+                f"اليوزر: {user_username}\n"
+                f"الآيدي: `{user_id}`\n"
+                "تم منحه وصولاً إلى: فيديوهات1"
+            )
+            bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
+
             # تحقق هنا مما إذا كان الاشتراك الإجباري مفعلاً
             if is_post_subscribe_check_enabled() and not is_mandatory_subscribed(user_id):
                 # إذا كان التحقق مفعلاً ولم يكمل المستخدم الاشتراك الإجباري، ارسل رسالة القناة الأولى
@@ -329,6 +343,17 @@ def handle_activation_messages(message):
             add_approved_user(approved_v2_col, user_id) 
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
             bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح! يمكنك الآن الضغط على زر **فيديوهات2**.", reply_markup=main_keyboard())
+
+            # رسالة للمالك عند قبول مستخدم جديد تلقائيًا (فيديوهات2)
+            owner_notification_message = (
+                "لقد تم قبول المستخدم تلقائيًا:\n\n"
+                f"الاسم: {user_name}\n"
+                f"اليوزر: {user_username}\n"
+                f"الآيدي: `{user_id}`\n"
+                "تم منحه وصولاً إلى: فيديوهات2"
+            )
+            bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
+
         else:
             bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
         return
