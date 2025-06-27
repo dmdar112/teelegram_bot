@@ -6,9 +6,10 @@ from threading import Thread
 
 import telebot
 from telebot import types
+from telebot import apihelper # Import for ApiTelegramException
 
 from pymongo import MongoClient
-
+import re # Import for regular expressions
 
 # --- متغيرات البيئة والإعدادات العامة ---
 TOKEN = os.environ.get("TOKEN")
@@ -43,6 +44,8 @@ mandatory_subscribed_col = db["mandatory_subscribed"]
 # مجموعات جديدة لإدارة الاشتراك الإجباري والقنوات من لوحة التحكم
 mandatory_channels_col = db["mandatory_channels"] 
 mandatory_message_col = db["mandatory_message"] # لتخزين نص رسالة الاشتراك الإجباري
+# --- إضافة مجموعة جديدة لحالة زر التحقق بعد الاشتراك ---
+post_subscribe_check_status_col = db["post_subscribe_check_status"]
 
 
 # --- الحالات المؤقتة ---
@@ -107,9 +110,18 @@ def owner_inline_keyboard():
 # --- لوحة مفاتيح قسم الاشتراك الإجباري للمالك ---
 def mandatory_sub_admin_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(types.InlineKeyboardButton("تعيين قناة إجبارية ➕", callback_data="set_mandatory_channel_start"))
+    # تعديل اسم الكول باك ليعكس الوظيفة الجديدة (إضافة بالرابط فقط)
+    markup.add(types.InlineKeyboardButton("تعيين قناة إجبارية بالرابط ➕", callback_data="set_mandatory_channel_by_link_start"))
     markup.add(types.InlineKeyboardButton("حذف قناة إجبارية 🗑️", callback_data="delete_mandatory_channel_start"))
     markup.add(types.InlineKeyboardButton("تعيين رسالة الاشتراك الإجباري 📝", callback_data="set_mandatory_message_start"))
+    
+    # --- إضافة الزر الجديد هنا ---
+    current_status = is_post_subscribe_check_enabled()
+    status_text = "✅ تشغيل تحقق بعد الاشتراك" if current_status else "❌ إيقاف تحقق بعد الاشتراك"
+    callback_data = "toggle_post_subscribe_check_off" if current_status else "toggle_post_subscribe_check_on"
+    markup.add(types.InlineKeyboardButton(status_text, callback_data=callback_data))
+    # ---------------------------
+
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
     return markup
 
@@ -161,6 +173,13 @@ def get_mandatory_message_text():
         return message_doc["text"]
     return "⚠️ للوصول إلى محتوى البوت، يرجى الاشتراك في القنوات التالية أولاً:\n\nبعد الاشتراك في جميع القنوات، اضغط على زر 'تحقق بعد الاشتراك'." # رسالة افتراضية
 
+def is_post_subscribe_check_enabled():
+    """يجلب حالة تفعيل زر 'تحقق بعد الاشتراك' من MongoDB."""
+    status_doc = post_subscribe_check_status_col.find_one({})
+    # الافتراضي: يكون مفعلاً إذا لم يتم تعيينه صراحةً على False
+    return status_doc.get("enabled", True) if status_doc else True
+
+
 def check_all_mandatory_subscriptions(user_id):
     """يتحقق مما إذا كان المستخدم مشتركًا في جميع القنوات الإجبارية."""
     channels = get_mandatory_channels()
@@ -172,7 +191,7 @@ def check_all_mandatory_subscriptions(user_id):
             member = bot.get_chat_member(channel["id"], user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
-        except telebot.apihelper.ApiTelegramException as e:
+        except apihelper.ApiTelegramException as e: # استخدام apihelper
             # التعامل مع الأخطاء مثل (User not found in chat) أو (Chat not found)
             print(f"Warning: Channel ID {channel['id']} or user {user_id} issue during check: {e}")
             return False # اعتبرها غير مشترك في حال وجود مشكلة في الوصول للقناة
@@ -183,7 +202,17 @@ def check_all_mandatory_subscriptions(user_id):
     return True
 
 def send_mandatory_subscription_message(user_id):
-    """يرسل رسالة الاشتراك الإجباري مع الأزرار اللازمة."""
+    """يرسل رسالة الاشتراك الإجباري مع الأزرار اللازمة، فقط إذا كان التحقق مفعلاً."""
+    if not is_post_subscribe_check_enabled():
+        # إذا كان التحقق معطلاً، لا ترسل رسالة الاشتراك الإجباري
+        print(f"Post-subscribe check is disabled for user {user_id}. Skipping mandatory message.")
+        # هنا يجب أن تعطي للمستخدم وصولاً مباشراً أو توجهه إلى لوحة المفاتيح الرئيسية
+        # إذا كان قد وصل إلى هذه النقطة بعد تفعيل (من بوت التمويل)، فقد يحتاج إلى إعادة توجيه
+        if user_id in load_approved_users(approved_v1_col):
+            set_mandatory_subscribed(user_id) # اعتباره مشتركاً لأنه لا يوجد تحقق
+            bot.send_message(user_id, "✅ تم تفعيل وصولك، ولا يتطلب الاشتراك الإجباري حالياً.", reply_markup=main_keyboard())
+        return
+    
     markup = types.InlineKeyboardMarkup()
     channels = get_mandatory_channels()
 
@@ -194,7 +223,17 @@ def send_mandatory_subscription_message(user_id):
     for channel in channels:
         # التأكد من أن الرابط موجود وليس فارغاً
         if "link" in channel and channel["link"]:
-            markup.add(types.InlineKeyboardButton(f"قناة: {channel['link'].split('/')[-1].split('?')[0]}", url=channel["link"]))
+            # اسم القناة في الزر يمكن أن يكون مستخلصًا من الرابط أو يكون مجرد "قناة"
+            # هنا نفترض أن الرابط ينتهي باسم مستخدم أو معرف القناة
+            channel_name = channel["link"].split('/')[-1].split('?')[0]
+            if channel_name.startswith('-100'): # إذا كان معرف قناة
+                channel_name = f"قناة ID: {channel_name}"
+            elif channel_name.startswith('+'): # إذا كان رابط دعوة
+                channel_name = "قناة خاصة"
+            else: # إذا كان اسم مستخدم
+                channel_name = f"قناة: @{channel_name}"
+
+            markup.add(types.InlineKeyboardButton(channel_name, url=channel["link"]))
     
     markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
     
@@ -237,10 +276,18 @@ def handle_activation_messages(message):
             add_approved_user(approved_v1_col, user_id) 
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access (pending mandatory sub).")
             bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح!")
-            send_mandatory_subscription_message(user_id) # طلب الاشتراك الإجباري
-        elif not is_mandatory_subscribed(user_id): # إذا كان لديه وصول ولكن لم يكمل الاشتراك الإجباري
+            # تحقق هنا مما إذا كان الاشتراك الإجباري مفعلاً
+            if is_post_subscribe_check_enabled():
+                send_mandatory_subscription_message(user_id) # طلب الاشتراك الإجباري
+            else:
+                set_mandatory_subscribed(user_id) # اعتباره مشتركاً إذا كان التحقق معطلاً
+                bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى فيديوهات1!", reply_markup=main_keyboard())
+        elif not is_mandatory_subscribed(user_id) and is_post_subscribe_check_enabled(): # إذا كان لديه وصول ولكن لم يكمل الاشتراك الإجباري والتحقق مفعّل
             bot.send_message(user_id, "👍🏼 لديك وصول إلى فيديوهات1، ولكن يرجى إكمال الاشتراك الإجباري أولاً.")
             send_mandatory_subscription_message(user_id)
+        elif not is_mandatory_subscribed(user_id) and not is_post_subscribe_check_enabled(): # لديه وصول ولكن لم يكمل الاشتراك الإجباري والتحقق معطل
+            set_mandatory_subscribed(user_id) # اعتباره مشتركاً
+            bot.send_message(user_id, "👍🏼 لديك وصول إلى فيديوهات1. التحقق الإجباري معطل حالياً.", reply_markup=main_keyboard())
         else: # لديه وصول وأكمل الاشتراك الإجباري
             bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات1.", reply_markup=main_keyboard())
         return
@@ -261,12 +308,16 @@ def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    # التحقق مما إذا كان المستخدم لديه وصول لـ فيديوهات1 (بشرط إكمال الاشتراك الإجباري)
-    has_v1_access = user_id in load_approved_users(approved_v1_col) and is_mandatory_subscribed(user_id)
+    # التحقق مما إذا كان المستخدم لديه وصول لـ فيديوهات1 (بشرط إكمال الاشتراك الإجباري إذا كان مفعلاً)
+    requires_mandatory_check = is_post_subscribe_check_enabled()
+    
+    has_v1_access_and_mandatory_done = user_id in load_approved_users(approved_v1_col) and \
+                                      (is_mandatory_subscribed(user_id) or not requires_mandatory_check)
+    
     has_v2_access = user_id in load_approved_users(approved_v2_col)
     
     # المستخدم لديه أي نوع من الوصول لعرض الأزرار السفلية
-    can_access_main_keyboard = has_v1_access or has_v2_access
+    can_access_main_keyboard = has_v1_access_and_mandatory_done or has_v2_access
 
     if user_id == OWNER_ID:
         bot.send_message(
@@ -275,7 +326,7 @@ def start(message):
             reply_markup=owner_inline_keyboard()
         )
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
-    elif can_access_main_keyboard: # إذا كان لديه أي وصول وتم الاشتراك الإجباري (لفيديوهات1)
+    elif can_access_main_keyboard: # إذا كان لديه أي وصول وتم الاشتراك الإجباري (لفيديوهات1) أو لا يتطلب الاشتراك الإجباري
         welcome_message = (
             f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
             "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
@@ -294,8 +345,8 @@ def start(message):
 """
             bot.send_message(OWNER_ID, new_user_msg)
             add_notified_user(user_id)
-    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id):
-        # المستخدم مفعل لـ فيديوهات1 ولكنه لم يكمل الاشتراك الإجباري
+    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id) and requires_mandatory_check:
+        # المستخدم مفعل لـ فيديوهات1 ولكنه لم يكمل الاشتراك الإجباري والتحقق مفعّل
         send_mandatory_subscription_message(user_id)
     else:
         # إذا لم يكن لديه أي وصول بعد (يوجه لتفعيل فيديوهات1)
@@ -335,7 +386,7 @@ def handle_check_mandatory_sub(call):
 @bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
                                      not (m.text and (ACTIVATION_PHRASE_V1 in m.text or ACTIVATION_PHRASE_V2 in m.text)) and \
                                      (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
-                                     (m.from_user.id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(m.from_user.id)))
+                                     (m.from_user.id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(m.from_user.id) and is_post_subscribe_check_enabled()))
 def handle_pending_mandatory_messages(message):
     bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.", reply_markup=types.ReplyKeyboardRemove())
     send_mandatory_subscription_message(message.chat.id)
@@ -362,9 +413,9 @@ def handle_unactivated_user_messages(message):
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
-    if user_id in load_approved_users(approved_v1_col) and is_mandatory_subscribed(user_id):
+    if user_id in load_approved_users(approved_v1_col) and (is_mandatory_subscribed(user_id) or not is_post_subscribe_check_enabled()):
         send_videos(user_id, "v1")
-    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id):
+    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id) and is_post_subscribe_check_enabled():
         bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.")
         send_mandatory_subscription_message(user_id)
     else:
@@ -557,9 +608,11 @@ def owner_callback_query_handler(call):
             reply_markup=mandatory_sub_admin_keyboard()
         )
     
-    elif data == "set_mandatory_channel_start":
-        bot.send_message(user_id, "الرجاء إرسال **آيدي القناة الإجبارية** (يبدأ بـ -100).", parse_mode="Markdown")
-        owner_state[user_id] = {"action": "await_mandatory_channel_id"}
+    # === تعديل هنا: تغيير اسم الكول باك ومعالجتها ===
+    elif data == "set_mandatory_channel_by_link_start": # الاسم الجديد للكول باك
+        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** (مثال: `https://t.me/my_channel_link` أو `https://t.me/c/-1001234567890`).", parse_mode="Markdown")
+        owner_state[user_id] = {"action": "await_mandatory_channel_link_only"} # حالة جديدة
+    # ===============================================
 
     elif data == "delete_mandatory_channel_start":
         channels = get_mandatory_channels()
@@ -584,42 +637,91 @@ def owner_callback_query_handler(call):
         bot.send_message(user_id, f"الرجاء إرسال نص رسالة الاشتراك الإجباري الجديدة.\n\nالرسالة الحالية:\n`{current_message}`", parse_mode="Markdown")
         owner_state[user_id] = {"action": "await_mandatory_message_text"}
 
+    # --- إضافة معالجات أزرار تشغيل/إيقاف تحقق بعد الاشتراك ---
+    elif data == "toggle_post_subscribe_check_on":
+        post_subscribe_check_status_col.update_one({}, {"$set": {"enabled": True}}, upsert=True)
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="✅ تم تفعيل التحقق بعد الاشتراك.",
+            reply_markup=mandatory_sub_admin_keyboard() # تحديث لوحة المفاتيح لعرض الحالة الجديدة
+        )
+    elif data == "toggle_post_subscribe_check_off":
+        post_subscribe_check_status_col.update_one({}, {"$set": {"enabled": False}}, upsert=True)
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="❌ تم إيقاف التحقق بعد الاشتراك.",
+            reply_markup=mandatory_sub_admin_keyboard() # تحديث لوحة المفاتيح لعرض الحالة الجديدة
+        )
+    # --------------------------------------------------------
+
 
 # --- معالجات مدخلات المالك الخاصة بـ "الاشتراك الإجباري" ---
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_mandatory_channel_id")
-def handle_await_mandatory_channel_id(message):
-    user_id = message.from_user.id
-    try:
-        channel_id = int(message.text)
-        if channel_id > 0: # IDs are negative for channels
-            bot.send_message(user_id, "❌ آيدي القناة يجب أن يكون سالباً (مثال: -1001234567890). يرجى إدخال آيدي صالح.")
-            return
-        owner_state[user_id]["channel_id"] = channel_id
-        owner_state[user_id]["action"] = "await_mandatory_channel_link"
-        bot.send_message(user_id, "الآن الرجاء إرسال **رابط الدعوة للقناة** (مثال: https://t.me/my_channel_link).", parse_mode="Markdown")
-    except ValueError:
-        bot.send_message(user_id, "❌ آيدي القناة غير صالح. الرجاء إرسال آيدي رقمي صحيح (يبدأ بـ -100).")
 
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_mandatory_channel_link")
-def handle_await_mandatory_channel_link(message):
+# === معالج جديد لاستقبال رابط القناة فقط ===
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_mandatory_channel_link_only")
+def handle_await_mandatory_channel_link_only(message):
     user_id = message.from_user.id
-    channel_id = owner_state[user_id].get("channel_id")
     channel_link = message.text.strip()
+    channel_id = None
+    
+    # تنظيف الرابط للحصول على الجزء المهم
+    cleaned_link = channel_link.replace("https://t.me/", "").replace("t.me/", "")
 
-    if not channel_link.startswith("https://t.me/"):
-        bot.send_message(user_id, "❌ الرابط غير صالح. الرجاء إرسال رابط دعوة تليجرام صحيح (مثال: https://t.me/my_channel_link).")
-        return
+    try:
+        if cleaned_link.startswith("c/"): # رابط على شكل https://t.me/c/-1001234567890
+            # استخراج الـ ID مباشرة
+            match = re.search(r'c/(-?\d+)', cleaned_link)
+            if match:
+                channel_id = int(match.group(1))
+            else:
+                raise ValueError("Could not extract ID from 'c/' link.")
+        elif cleaned_link.startswith("+"): # رابط دعوة https://t.me/+AbCDefG
+            # روابط الدعوة يصعب استخراج الـ ID منها مباشرة بدون انضمام البوت
+            bot.send_message(user_id, "⚠️ لا يمكن إضافة القنوات الخاصة بروابط الدعوة (+) تلقائياً. الرجاء التأكد من أن القناة عامة (اسم مستخدم) أو قم بإضافة الـ ID يدوياً إذا كان البوت مسؤولاً فيها.")
+            owner_state.pop(user_id, None)
+            bot.send_message(
+                user_id,
+                "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+                reply_markup=owner_inline_keyboard()
+            )
+            return
+        else: # رابط على شكل https://t.me/username
+            # محاولة جلب معلومات القناة باستخدام اسم المستخدم
+            username = cleaned_link.split('/')[0] # إذا كان هناك شيء بعد اسم المستخدم، خذ الاسم فقط
+            chat_obj = bot.get_chat(f"@{username}")
+            channel_id = chat_obj.id
+
+        # التأكد من أن القناة ليست محادثة فردية أو مجموعة عادية
+        # Telegram channel IDs are negative, typically starting with -100
+        if not isinstance(channel_id, int) or channel_id >= 0 or not str(channel_id).startswith("-100"):
+            raise ValueError("Invalid channel ID extracted or not a supergroup/channel.")
+
+        # التحقق مما إذا كانت القناة موجودة مسبقًا لتجنب التكرار
+        if mandatory_channels_col.find_one({"id": channel_id}):
+            bot.send_message(user_id, "⚠️ هذه القناة موجودة بالفعل في قائمة القنوات الإجبارية.")
+        else:
+            # حفظ القناة في MongoDB
+            mandatory_channels_col.insert_one({"id": channel_id, "link": channel_link})
+            bot.send_message(user_id, f"✅ تم إضافة القناة `{channel_id}` بنجاح.", parse_mode="Markdown")
+        
+    except apihelper.ApiTelegramException as e:
+        error_message = f"❌ خطأ في جلب معلومات القناة: {e}. قد تكون القناة غير موجودة، أو البوت ليس عضواً فيها، أو ليس لديه صلاحية الوصول. تأكد من أن الرابط صحيح وأن البوت مسؤول في القناة."
+        bot.send_message(user_id, error_message)
+    except ValueError as e:
+        bot.send_message(user_id, f"❌ الرابط غير صالح أو لا يمكن استخراج معرف القناة منه: {e}. يرجى إرسال رابط قناة عامة (اسم مستخدم) أو رابط معرف قناة (يبدأ بـ `c/-100`).")
+    except Exception as e:
+        bot.send_message(user_id, f"❌ حدث خطأ غير متوقع: {e}. يرجى المحاولة مرة أخرى أو التحقق من الرابط.")
     
-    # حفظ القناة في MongoDB
-    mandatory_channels_col.insert_one({"id": channel_id, "link": channel_link})
-    bot.send_message(user_id, f"✅ تم إضافة القناة `{channel_id}` بنجاح.", parse_mode="Markdown")
-    
-    owner_state.pop(user_id) # مسح حالة المالك
+    owner_state.pop(user_id, None) # مسح حالة المالك بغض النظر عن النتيجة
     bot.send_message(
         user_id,
         "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
         reply_markup=owner_inline_keyboard()
     )
+
+# ==========================================================
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_index")
 def handle_await_delete_mandatory_channel_index(message):
