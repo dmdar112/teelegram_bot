@@ -432,6 +432,7 @@ def handle_check_mandatory_sub(call):
             message_id=call.message.message_id,
             reply_markup=None # إزالة الزر
         )
+        # 📌 تم إضافة هذا السطر هنا
         bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
         return
@@ -462,6 +463,8 @@ def handle_check_mandatory_sub(call):
                     text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
                     reply_markup=None
                 )
+                # 📌 تم إضافة هذا السطر هنا أيضًا لضمان ظهور الأزرار فورًا
+                bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
                 pending_mandatory_check.pop(user_id, None)
         else:
             bot.send_message(user_id, "⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.", reply_markup=types.ReplyKeyboardRemove())
