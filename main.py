@@ -29,6 +29,14 @@ FINANCE_BOT_USERNAME_V2 = "another_finance_bot"
 ACTIVATION_PHRASE_V2 = "✅ تم تفعيل اشتراكك الخاص بمحتوى VIP بنجاح! استمتع بالمشاهدة."
 FINANCE_BOT_LINK_V2 = "https://t.me/another_finance_bot?start=vip_access" 
 
+# --- قنوات الاشتراك الإجباري (بعد تفعيل فيديوهات1) ---
+# تذكر أن Channel ID يبدأ بـ "-100"
+MANDATORY_CHANNELS = [
+    {"id": -1001234567890, "link": "https://t.me/your_channel_1"}, # غير الآيدي والرابط
+    {"id": -1009876543210, "link": "https://t.me/your_channel_2"}, # غير الآيدي والرابط
+    # أضف المزيد من القنوات حسب الحاجة
+]
+
 
 # --- إعداد MongoDB ---
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -39,14 +47,16 @@ db = client["telegram_bot_db"]
 approved_v1_col = db["approved_v1"] 
 approved_v2_col = db["approved_v2"] 
 notified_users_col = db["notified_users"]
+# إضافة مجموعة جديدة لتتبع المستخدمين الذين أتموا الاشتراك الإجباري
+mandatory_subscribed_col = db["mandatory_subscribed"]
 
 
 # --- الحالات المؤقتة ---
 owner_upload_mode = {}
 waiting_for_broadcast = {}
 waiting_for_delete = {}
-# هذه المتغيرات لم تعد بحاجة لأن تكون عامة، سيتم تمريرها كـ user_data في Inline Keyboard
-# waiting_for_v2_add_id = {}
+# لتتبع المستخدمين الذين أكملوا تفعيل فيديوهات1 وينتظرون الاشتراك الإجباري
+pending_mandatory_check = {} 
 
 
 # --- دوال مساعدة عامة ---
@@ -68,6 +78,15 @@ def add_notified_user(user_id):
     if not has_notified(user_id):
         notified_users_col.insert_one({"user_id": user_id})
 
+def is_mandatory_subscribed(user_id):
+    """التحقق مما إذا كان المستخدم قد أتم الاشتراك الإجباري."""
+    return mandatory_subscribed_col.find_one({"user_id": user_id}) is not None
+
+def set_mandatory_subscribed(user_id):
+    """تسجيل أن المستخدم قد أتم الاشتراك الإجباري."""
+    if not is_mandatory_subscribed(user_id):
+        mandatory_subscribed_col.insert_one({"user_id": user_id, "timestamp": time.time()})
+
 def main_keyboard():
     # هذه هي لوحة المفاتيح للمستخدمين العاديين
     return types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True).add(
@@ -77,13 +96,11 @@ def main_keyboard():
 # --- لوحة مفاتيح المالك الشفافة الجديدة ---
 def owner_inline_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
-    # قسم إدارة الفيديوهات
     markup.add(types.InlineKeyboardButton("الإدارة 📂", callback_data="admin_menu"))
     markup.add(
         types.InlineKeyboardButton("فيديوهات1 ▶️", callback_data="manage_v1"),
         types.InlineKeyboardButton("فيديوهات2 ▶️", callback_data="manage_v2")
     )
-    # قسم إدارة الإذاعة
     markup.add(types.InlineKeyboardButton("الإذاعة 📢", callback_data="broadcast_menu"))
     markup.add(
         types.InlineKeyboardButton("رسالة جماعية مع صورة 🖼️", callback_data="broadcast_photo")
@@ -126,6 +143,35 @@ def send_videos(user_id, category):
         except Exception as e:
             print(f"❌ خطأ أثناء إرسال الفيديو: {e}")
 
+# --- وظائف الاشتراك الإجباري ---
+def check_all_mandatory_subscriptions(user_id):
+    """يتحقق مما إذا كان المستخدم مشتركًا في جميع القنوات الإجبارية."""
+    for channel in MANDATORY_CHANNELS:
+        try:
+            member = bot.get_chat_member(channel["id"], user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                return False
+        except telebot.apihelper.ApiTelegramException as e:
+            if "User not found in chat" in str(e) or "chat not found" in str(e):
+                print(f"Warning: Channel ID {channel['id']} or user {user_id} issue: {e}")
+                return False # اعتبرها غير مشترك في حال وجود مشكلة
+            raise # أعد رفع أي خطأ آخر
+    return True
+
+def send_mandatory_subscription_message(user_id):
+    """يرسل رسالة الاشتراك الإجباري مع الأزرار اللازمة."""
+    markup = types.InlineKeyboardMarkup()
+    for channel in MANDATORY_CHANNELS:
+        markup.add(types.InlineKeyboardButton(f"قناة: {channel['link'].split('/')[-1]}", url=channel["link"]))
+    markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
+    bot.send_message(
+        user_id,
+        "⚠️ للوصول إلى محتوى البوت، يرجى الاشتراك في القنوات التالية أولاً:\n\n"
+        "بعد الاشتراك في جميع القنوات، اضغط على زر 'تحقق بعد الاشتراك'.",
+        reply_markup=markup,
+        disable_web_page_preview=True
+    )
+    pending_mandatory_check[user_id] = True # وضع المستخدم في حالة انتظار التحقق
 
 # --- معالجات الأوامر والرسائل ---
 
@@ -135,15 +181,21 @@ def handle_activation_messages(message):
     user_id = message.from_user.id
     message_text = message.text if message.text else ""
 
+    # معالجة تفعيل فيديوهات1
     if ACTIVATION_PHRASE_V1 in message_text:
         if user_id not in load_approved_users(approved_v1_col):
             add_approved_user(approved_v1_col, user_id) 
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access.")
-            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح! يمكنك الآن الضغط على زر **فيديوهات1**.", reply_markup=main_keyboard())
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access (pending mandatory sub).")
+            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح!")
+            send_mandatory_subscription_message(user_id) # طلب الاشتراك الإجباري
+        elif not is_mandatory_subscribed(user_id):
+            bot.send_message(user_id, "👍🏼 لديك وصول إلى فيديوهات1، ولكن يرجى إكمال الاشتراك الإجباري أولاً.")
+            send_mandatory_subscription_message(user_id)
         else:
             bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات1.", reply_markup=main_keyboard())
         return
 
+    # معالجة تفعيل فيديوهات2
     if ACTIVATION_PHRASE_V2 in message_text:
         if user_id not in load_approved_users(approved_v2_col):
             add_approved_user(approved_v2_col, user_id) 
@@ -159,18 +211,22 @@ def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    has_any_access = user_id in load_approved_users(approved_v1_col) or user_id in load_approved_users(approved_v2_col)
+    # التحقق مما إذا كان المستخدم لديه وصول لـ فيديوهات1 (بشرط إكمال الاشتراك الإجباري)
+    has_v1_access = user_id in load_approved_users(approved_v1_col) and is_mandatory_subscribed(user_id)
+    has_v2_access = user_id in load_approved_users(approved_v2_col)
+    
+    # المستخدم لديه أي نوع من الوصول لعرض الأزرار السفلية
+    can_access_main_keyboard = has_v1_access or has_v2_access
 
     if user_id == OWNER_ID:
-        # للمالك، نرسل لوحة التحكم الشفافة
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
-        # إزالة لوحة المفاتيح السفلية إذا كانت موجودة
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
-    elif has_any_access:
+    elif has_v1_access or has_v2_access:
+        # إذا كان لديه أي وصول وتم الاشتراك الإجباري (لفيديوهات1)
         welcome_message = (
             f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
             "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
@@ -189,7 +245,11 @@ def start(message):
 """
             bot.send_message(OWNER_ID, new_user_msg)
             add_notified_user(user_id)
+    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id):
+        # المستخدم مفعل لـ فيديوهات1 ولكنه لم يكمل الاشتراك الإجباري
+        send_mandatory_subscription_message(user_id)
     else:
+        # إذا لم يكن لديه أي وصول بعد (يوجه لتفعيل فيديوهات1)
         bot.send_message(
             user_id,
             "🚫 مرحباً بك! للوصول إلى محتوى البوت، يرجى تفعيل **فيديوهات1** أولاً.\n"
@@ -201,33 +261,64 @@ def start(message):
         )
 
 
-# معالج لرسائل المستخدمين غير المفعلين (غير المالك)
-@bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and not (m.text and (ACTIVATION_PHRASE_V1 in m.text or ACTIVATION_PHRASE_V2 in m.text)) and not (m.text == "فيديوهات1" or m.text == "فيديوهات2"))
-def handle_unactivated_user_messages(message):
-    user_id = message.from_user.id
-    has_any_access = user_id in load_approved_users(approved_v1_col) or user_id in load_approved_users(approved_v2_col)
+# معالج لزر التحقق من الاشتراك الإجباري
+@bot.callback_query_handler(func=lambda call: call.data == "check_mandatory_sub")
+def handle_check_mandatory_sub(call):
+    bot.answer_callback_query(call.id, "جار التحقق من اشتراكك في القنوات...")
+    user_id = call.from_user.id
 
-    if not has_any_access:
-        bot.send_message(
-            user_id,
-            "🚫 يرجى تفعيل البوت أولاً للوصول إلى المحتوى.\n"
-            f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
-            "ثم أكمل عملية الدخول وقم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
-            f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
-            reply_markup=types.ReplyKeyboardRemove(),
-            disable_web_page_preview=True
+    if check_all_mandatory_subscriptions(user_id):
+        set_mandatory_subscribed(user_id) # تسجيل أن المستخدم قد اشترك إجباريًا
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
+            reply_markup=None # إزالة أزرار التحقق
         )
+        # إظهار الأزرار السفلية بعد النجاح
+        bot.send_message(user_id, "اختر قسم الفيديوهات:", reply_markup=main_keyboard())
+        pending_mandatory_check.pop(user_id, None) # إزالة المستخدم من حالة الانتظار
     else:
-        # إذا كان مفعلاً ولكن أرسل شيئاً غير الأزرار
-        bot.send_message(user_id, "لم أفهم طلبك. الرجاء استخدام الأزرار في الأسفل.", reply_markup=main_keyboard())
+        bot.send_message(user_id, "⚠️ لم يتم التحقق من اشتراكك في جميع القنوات. يرجى التأكد من الاشتراك ثم أعد المحاولة.")
+        send_mandatory_subscription_message(user_id) # أعد إرسال رسالة الاشتراك الإجباري
 
 
-# معالجات أزرار الفيديوهات للمستخدمين العاديين (لم تتغير)
+# معالج لرسائل المستخدمين غير المفعلين (غير المالك) والذين لم يكملوا الاشتراك الإجباري
+@bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
+                                     not (m.text and (ACTIVATION_PHRASE_V1 in m.text or ACTIVATION_PHRASE_V2 in m.text)) and \
+                                     (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
+                                     (m.from_user.id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(m.from_user.id)))
+def handle_pending_mandatory_messages(message):
+    bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.", reply_markup=types.ReplyKeyboardRemove())
+    send_mandatory_subscription_message(message.chat.id)
+
+
+# معالج لرسائل المستخدمين غير المفعلين (غير المالك) والذين لم يفعلوا أي شيء بعد
+@bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
+                                     not (m.text and (ACTIVATION_PHRASE_V1 in m.text or ACTIVATION_PHRASE_V2 in m.text)) and \
+                                     (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
+                                     (m.from_user.id not in load_approved_users(approved_v1_col) and m.from_user.id not in load_approved_users(approved_v2_col)))
+def handle_unactivated_user_messages(message):
+    bot.send_message(
+        message.chat.id,
+        "🚫 يرجى تفعيل البوت أولاً للوصول إلى المحتوى.\n"
+        f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
+        "ثم أكمل عملية الدخول وقم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
+        f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
+        reply_markup=types.ReplyKeyboardRemove(),
+        disable_web_page_preview=True
+    )
+
+
+# معالجات أزرار الفيديوهات للمستخدمين العاديين
 @bot.message_handler(func=lambda m: m.text == "فيديوهات1")
 def handle_v1(message):
     user_id = message.from_user.id
-    if user_id in load_approved_users(approved_v1_col):
+    if user_id in load_approved_users(approved_v1_col) and is_mandatory_subscribed(user_id):
         send_videos(user_id, "v1")
+    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id):
+        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.")
+        send_mandatory_subscription_message(user_id)
     else:
         bot.send_message(
             user_id,
@@ -240,7 +331,7 @@ def handle_v1(message):
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     user_id = message.from_user.id
-    
+    # فيديوهات2 لا تتطلب الاشتراك الإجباري
     if user_id in load_approved_users(approved_v2_col):
         send_videos(user_id, "v2")
     else:
@@ -252,80 +343,12 @@ def handle_v2(message):
             disable_web_page_preview=True
         )
 
-# --- معالجات الـ Inline Callback Query للمالك ---
-@bot.callback_query_handler(func=lambda call: call.from_user.id == OWNER_ID)
-def owner_callback_query_handler(call):
-    bot.answer_callback_query(call.id) # إخفاء رسالة "جار التحميل"
-
-    user_id = call.from_user.id
-    data = call.data
-
-    if data == "main_admin_menu":
-        # العودة إلى القائمة الرئيسية للأدمن
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-            reply_markup=owner_inline_keyboard()
-        )
-        # مسح أي حالات انتظار خاصة بالمالك
-        owner_upload_mode.pop(user_id, None)
-        waiting_for_delete.pop(user_id, None)
-        waiting_for_broadcast.pop(user_id, None)
-    
-    elif data == "manage_v1":
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="إدارة قسم فيديوهات1:",
-            reply_markup=manage_videos_keyboard("v1")
-        )
-    elif data == "manage_v2":
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="إدارة قسم فيديوهات2:",
-            reply_markup=manage_videos_keyboard("v2")
-        )
-    elif data.startswith("upload_video_"):
-        category = data.split("_")[2]
-        owner_upload_mode[user_id] = category
-        bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown")
-        # لا نعدل الرسالة الأصلية هنا لأننا نطلب ملف
-
-    elif data.startswith("delete_video_"):
-        category = data.split("_")[2]
-        db_videos_col = db[f"videos_{category}"]
-        videos = list(db_videos_col.find().limit(20)) # عرض أول 20 فيديو للحذف
-
-        if not videos:
-            bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
-            bot.edit_message_reply_markup(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=manage_videos_keyboard(category)
-            ) # لإعادة إظهار الأزرار بعد الرسالة
-            return
-        
-        text = f"📋 قائمة فيديوهات {category.upper()}:\n"
-        for i, vid in enumerate(videos, 1):
-            text += f"{i}. رسالة رقم: {vid['message_id']}\n"
-        text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-        bot.send_message(user_id, text)
-        waiting_for_delete[user_id] = {"category": category, "videos": videos}
-        # لا نعدل الرسالة الأصلية هنا لأننا نطلب رقم
-
-    elif data == "broadcast_photo":
-        waiting_for_broadcast["photo"] = True
-        bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
-
-
-# معالجات حذف الفيديوهات (الآن تستقبل الأرقام من المالك بعد الضغط على الزر الشفاف)
+# معالجات حذف الفيديوهات (خاصة بالمالك)
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_delete.get(m.from_user.id))
 def handle_delete_choice(message):
     user_id = message.from_user.id
     data = waiting_for_delete.get(user_id)
-    if not data: return # يجب أن يكون هناك بيانات حذف معلقة
+    if not data: return 
     try:
         choice = int(message.text)
         videos = data["videos"]
@@ -343,7 +366,6 @@ def handle_delete_choice(message):
             db_videos_col = db[f"videos_{category}"]
             db_videos_col.delete_one({"message_id": message_id})
             bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} من قسم {category.upper()} بنجاح.", reply_markup=types.ReplyKeyboardRemove())
-            # بعد الحذف، نرسل له لوحة الأدمن الشفافة مرة أخرى
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -372,8 +394,7 @@ def handle_video_upload(message):
             "message_id": sent.message_id
         })
         bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
-        owner_upload_mode.pop(user_id) # مسح حالة الرفع بعد الانتهاء
-        # بعد الرفع، نرسل له لوحة الأدمن الشفافة مرة أخرى
+        owner_upload_mode.pop(user_id) 
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -398,21 +419,83 @@ def receive_broadcast_text(message):
         text = message.text
         users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col))
         sent_count = 0
-        for user_id_to_send in users_to_broadcast: # changed variable name to avoid conflict with `user_id` from message
+        for user_id_to_send in users_to_broadcast: 
             try:
                 bot.send_photo(user_id_to_send, photo_id, caption=text)
                 sent_count += 1
             except Exception as e:
                 print(f"Failed to send broadcast to {user_id_to_send}: {e}")
-                pass # تجاهل المستخدمين الذين لا يمكن إرسال رسالة إليهم
+                pass 
         bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
         waiting_for_broadcast.clear()
-        # بعد الإذاعة، نرسل له لوحة الأدمن الشفافة مرة أخرى
         bot.send_message(
             OWNER_ID,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
+
+# --- معالجات الـ Inline Callback Query للمالك (لم تتغير) ---
+@bot.callback_query_handler(func=lambda call: call.from_user.id == OWNER_ID)
+def owner_callback_query_handler(call):
+    bot.answer_callback_query(call.id) 
+    user_id = call.from_user.id
+    data = call.data
+
+    if data == "main_admin_menu":
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+            reply_markup=owner_inline_keyboard()
+        )
+        owner_upload_mode.pop(user_id, None)
+        waiting_for_delete.pop(user_id, None)
+        waiting_for_broadcast.pop(user_id, None)
+    
+    elif data == "manage_v1":
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="إدارة قسم فيديوهات1:",
+            reply_markup=manage_videos_keyboard("v1")
+        )
+    elif data == "manage_v2":
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="إدارة قسم فيديوهات2:",
+            reply_markup=manage_videos_keyboard("v2")
+        )
+    elif data.startswith("upload_video_"):
+        category = data.split("_")[2]
+        owner_upload_mode[user_id] = category
+        bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown")
+
+    elif data.startswith("delete_video_"):
+        category = data.split("_")[2]
+        db_videos_col = db[f"videos_{category}"]
+        videos = list(db_videos_col.find().limit(20)) 
+
+        if not videos:
+            bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=manage_videos_keyboard(category)
+            ) 
+            return
+        
+        text = f"📋 قائمة فيديوهات {category.upper()}:\n"
+        for i, vid in enumerate(videos, 1):
+            text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+        text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+        bot.send_message(user_id, text)
+        waiting_for_delete[user_id] = {"category": category, "videos": videos}
+
+    elif data == "broadcast_photo":
+        waiting_for_broadcast["photo"] = True
+        bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
+
 
 # --- Flask Web Server لتشغيل البوت على Render + UptimeRobot ---
 app = Flask('')
