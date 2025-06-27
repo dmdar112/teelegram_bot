@@ -22,11 +22,13 @@ CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخ�
 
 # --- إعدادات التفعيل لفيديوهات1 ---
 FINANCE_BOT_USERNAME_V1 = "yynnurybot" 
+FINANCE_BOT_ID_V1 = 6626184534 # أضف معرف بوت التمويل هنا
 ACTIVATION_PHRASE_V1 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
 FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft" 
 
 # --- إعدادات التفعيل لفيديوهات2 ---
 FINANCE_BOT_USERNAME_V2 = "another_finance_bot" 
+FINANCE_BOT_ID_V2 = 1234567890 # أضف معرف بوت التمويل هنا (مثال فقط، قم بتحديثه)
 ACTIVATION_PHRASE_V2 = "✅ تم تفعيل اشتراكك الخاص بمحتوى VIP بنجاح! استمتع بالمشاهدة."
 FINANCE_BOT_LINK_V2 = "https://t.me/another_finance_bot?start=vip_access" 
 
@@ -101,7 +103,6 @@ def main_keyboard():
 # --- لوحة مفاتيح المالك الشفافة الجديدة ---
 def owner_inline_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
-    # تم حذف زر "الإدارة 📂" بناءً على طلب المستخدم
     markup.add(
         types.InlineKeyboardButton("فيديوهات1 ▶️", callback_data="manage_v1"),
         types.InlineKeyboardButton("فيديوهات2 ▶️", callback_data="manage_v2")
@@ -275,13 +276,25 @@ def set_upload_mode(message):
 
 
 # معالج رسائل التفعيل (V1 و V2)
-@bot.message_handler(func=lambda m: (m.text and ACTIVATION_PHRASE_V1 in m.text) or (m.text and ACTIVATION_PHRASE_V2 in m.text))
+@bot.message_handler(func=lambda m: m.forward_from or m.forward_from_chat) # فقط الرسائل المعاد توجيهها
 def handle_activation_messages(message):
     user_id = message.from_user.id
     message_text = message.text if message.text else ""
 
+    # التحقق من مصدر إعادة التوجيه
+    source_bot_id = None
+    if message.forward_from:
+        source_bot_id = message.forward_from.id
+    elif message.forward_from_chat and message.forward_from_chat.type == "bot":
+        source_bot_id = message.forward_from_chat.id
+
+    if not source_bot_id:
+        # إذا لم تكن رسالة معاد توجيهها من بوت، تجاهلها أو أرسل رسالة خطأ
+        bot.send_message(user_id, "⚠️ يرجى **إعادة توجيه** رسالة التفعيل مباشرة من بوت التمويل، وليس نسخها ولصقها.")
+        return
+
     # معالجة تفعيل فيديوهات1
-    if ACTIVATION_PHRASE_V1 in message_text:
+    if source_bot_id == FINANCE_BOT_ID_V1 and ACTIVATION_PHRASE_V1 in message_text:
         if user_id not in load_approved_users(approved_v1_col):
             add_approved_user(approved_v1_col, user_id) 
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access (pending mandatory sub).")
@@ -305,7 +318,7 @@ def handle_activation_messages(message):
         return
 
     # معالجة تفعيل فيديوهات2
-    if ACTIVATION_PHRASE_V2 in message_text:
+    elif source_bot_id == FINANCE_BOT_ID_V2 and ACTIVATION_PHRASE_V2 in message_text:
         if user_id not in load_approved_users(approved_v2_col):
             add_approved_user(approved_v2_col, user_id) 
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
@@ -313,6 +326,10 @@ def handle_activation_messages(message):
         else:
             bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
         return
+    else:
+        # رسالة معاد توجيهها ليست من بوت التمويل المطلوب أو لا تحتوي على العبارة الصحيحة
+        bot.send_message(user_id, "⚠️ هذه ليست رسالة تفعيل صالحة من بوت التمويل المحدد. يرجى التأكد من إعادة توجيه الرسالة الصحيحة.")
+
 
 # دالة /start (واجهة المستخدم الأولية)
 @bot.message_handler(commands=['start'])
@@ -365,7 +382,7 @@ def start(message):
             user_id,
             "🚫 مرحباً بك! للوصول إلى محتوى البوت، يرجى تفعيل **فيديوهات1** أولاً.\n"
             f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
-            "ثم أكمل عملية الدخول وقم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
+            "ثم أكمل عملية الدخول وقم ب**إعادة توجيه** رسالة التفعيل التي ستصلك إليّ.\n"
             f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
             reply_markup=types.ReplyKeyboardRemove(),
             disable_web_page_preview=True
@@ -436,7 +453,7 @@ def handle_check_mandatory_sub(call):
 
 # معالج لرسائل المستخدمين غير المفعلين والذين لم يكملوا الاشتراك الإجباري
 @bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
-                                     not (m.text and (ACTIVATION_PHRASE_V1 in m.text or ACTIVATION_PHRASE_V2 in m.text)) and \
+                                     not (m.forward_from or m.forward_from_chat) and \
                                      (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
                                      (m.from_user.id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(m.from_user.id) and is_post_subscribe_check_enabled()))
 def handle_pending_mandatory_messages(message):
@@ -446,7 +463,7 @@ def handle_pending_mandatory_messages(message):
 
 # معالج لرسائل المستخدمين غير المفعلين (غير المالك) والذين لم يفعلوا أي شيء بعد
 @bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
-                                     not (m.text and (ACTIVATION_PHRASE_V1 in m.text or ACTIVATION_PHRASE_V2 in m.text)) and \
+                                     not (m.forward_from or m.forward_from_chat) and \
                                      (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
                                      (m.from_user.id not in load_approved_users(approved_v1_col) and m.from_user.id not in load_approved_users(approved_v2_col)))
 def handle_unactivated_user_messages(message):
@@ -454,7 +471,7 @@ def handle_unactivated_user_messages(message):
         message.chat.id,
         "🚫 مرحباً بك! للوصول إلى محتوى البوت، يرجى تفعيل **فيديوهات1** أولاً.\n"
         f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
-        "ثم أكمل عملية الدخول وقم بإعادة توجيه رسالة التفعيل التي ستصلك إليّ.\n"
+        "ثم أكمل عملية الدخول وقم ب**إعادة توجيه** رسالة التفعيل التي ستصلك إليّ.\n"
         f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
         reply_markup=types.ReplyKeyboardRemove(),
         disable_web_page_preview=True
@@ -684,13 +701,13 @@ def owner_callback_query_handler(call):
             )
             return
         
-        text = "📋 قائمة القنوات الإجبارية:\n"
-        for i, channel in enumerate(channels, 1):
+        text = "📋 قائمة القنوات الإجبارية (أرسل معرف القناة الذي تريد حذفه):\n"
+        for channel in channels:
             # استخدام channel.get('_id') لضمان وجوده
-            text += f"{i}. ID: `{channel.get('id', 'N/A')}` - Link: {channel.get('link', 'غير محدد')}\n"
-        text += "\nالرجاء إرسال رقم القناة التي تريد حذفها."
+            text += f"**ID**: `{channel.get('id', 'N/A')}` - **الرابط**: {channel.get('link', 'غير محدد')}\n"
+        text += "\nالرجاء إرسال **معرف القناة (Channel ID)** الذي تريد حذفه (مثال: `-1001234567890`)."
         bot.send_message(user_id, text, parse_mode="Markdown")
-        owner_state[user_id] = {"action": "await_delete_mandatory_channel_index", "channels_list": channels}
+        owner_state[user_id] = {"action": "await_delete_mandatory_channel_id"} # تم تغيير الإجراء هنا
 
     elif data == "set_mandatory_message_start":
         current_message = get_mandatory_message_text()
@@ -809,25 +826,26 @@ def handle_await_mandatory_channel_link_only(message):
         reply_markup=owner_inline_keyboard()
     )
 
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_index")
-def handle_await_delete_mandatory_channel_index(message):
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_id")
+def handle_await_delete_mandatory_channel_id(message):
     user_id = message.from_user.id
-    channels_list = owner_state[user_id].get("channels_list")
+    channel_id_to_delete_str = message.text.strip()
+    
     try:
-        index_to_delete = int(message.text) - 1
-        if 0 <= index_to_delete < len(channels_list):
-            channel_to_delete = channels_list[index_to_delete]
-            # التأكد من حذف باستخدام _id الخاص بـ MongoDB
-            if "_id" in channel_to_delete:
-                mandatory_channels_col.delete_one({"_id": channel_to_delete["_id"]})
-                bot.send_message(user_id, f"✅ تم حذف القناة `{channel_to_delete.get('id', 'N/A')}` بنجاح.", parse_mode="Markdown")
-            else:
-                bot.send_message(user_id, "❌ خطأ: لا يمكن تحديد معرف القناة للحذف. يرجى المحاولة مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
+        channel_id_to_delete = int(channel_id_to_delete_str) # تحويل إلى عدد صحيح
+        
+        # البحث عن القناة بواسطة الـ ID الذي تم إدخاله
+        result = mandatory_channels_col.delete_one({"id": channel_id_to_delete})
+        
+        if result.deleted_count > 0:
+            bot.send_message(user_id, f"✅ تم حذف القناة `{channel_id_to_delete}` بنجاح.", parse_mode="Markdown")
         else:
-            bot.send_message(user_id, "❌ رقم قناة غير صالح. يرجى إرسال رقم من القائمة.", reply_markup=types.ReplyKeyboardRemove())
+            bot.send_message(user_id, f"❌ لم يتم العثور على قناة بالمعرف `{channel_id_to_delete}`. يرجى التأكد من المعرف.", parse_mode="Markdown")
             
     except ValueError:
-        bot.send_message(user_id, "❌ يرجى إرسال رقم صالح من القائمة.", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(user_id, "❌ معرف القناة يجب أن يكون رقمًا. يرجى إدخال معرف رقمي صالح (مثال: -1001234567890).", reply_markup=types.ReplyKeyboardRemove())
+    except Exception as e:
+        bot.send_message(user_id, f"❌ حدث خطأ أثناء حذف القناة: {e}. يرجى المحاولة مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
     
     # بعد أي عملية حذف أو خطأ، أعد المستخدم إلى القائمة الرئيسية
     owner_state.pop(user_id)
@@ -836,6 +854,7 @@ def handle_await_delete_mandatory_channel_index(message):
         "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
         reply_markup=owner_inline_keyboard()
     )
+
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_mandatory_message_text")
 def handle_await_mandatory_message_text(message):
