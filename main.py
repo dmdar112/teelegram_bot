@@ -80,18 +80,15 @@ def add_notified_user(user_id):
 
 def is_mandatory_subscribed(user_id):
     """التحقق مما إذا كان المستخدم قد أتم الاشتراك الإجباري في جميع القنوات."""
-    channels = get_mandatory_channels()
-    if not channels: # إذا لم تكن هناك قنوات إجبارية محددة، اعتبرها موافقًا
-        return True
-    
-    # تحقق من وجود سجل في mandatory_subscribed_col
+    # تعتمد الآن على وجود المستند في mandatory_subscribed_col فقط
+    # لأن التقدم الفردي للقنوات يتم إدارته بواسطة user_mandatory_progress_col
     return mandatory_subscribed_col.find_one({"user_id": user_id}) is not None
 
 def set_mandatory_subscribed(user_id):
     """تسجيل أن المستخدم قد أتم الاشتراك الإجباري في جميع القنوات."""
     if not is_mandatory_subscribed(user_id):
         mandatory_subscribed_col.insert_one({"user_id": user_id, "timestamp": time.time()})
-    # مسح تقدم المستخدم بعد إكمال جميع القنوات
+    # مسح تقدم المستخدم بعد إكمال جميع القنوات لضمان بدء جديد إذا تم إعادة تعيينه
     user_mandatory_progress_col.delete_one({"user_id": user_id})
 
 
@@ -142,7 +139,7 @@ def mandatory_sub_admin_keyboard():
 # --- لوحة مفاتيح قسم الإحصائيات للمالك ---
 def statistics_admin_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(types.InlineKeyboardButton("تنظيف المستخدمين المقبولين 🧹", callback_data="clear_approved_users"))
+    markup.add(types.InlineKeyboardButton("تنظيف المستخدمين المقبولين 🧹", callback_data="clear_approved_users_confirm")) # إضافة تأكيد
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
     return markup
 
@@ -219,7 +216,7 @@ def send_mandatory_subscription_message(user_id):
     if not is_post_subscribe_check_enabled():
         print(f"Post-subscribe check is disabled for user {user_id}. Skipping mandatory message.")
         if user_id in load_approved_users(approved_v1_col):
-            set_mandatory_subscribed(user_id) 
+            set_mandatory_subscribed(user_id) # اعتباره مشتركاً لأنه لا يوجد تحقق
             bot.send_message(user_id, "✅ تم تفعيل وصولك، ولا يتطلب الاشتراك الإجباري حالياً.", reply_markup=main_keyboard())
         return
     
@@ -239,27 +236,24 @@ def send_mandatory_subscription_message(user_id):
 
     # إظهار القناة الحالية فقط
     channel_to_show = channels[current_index]
-    markup = types.InlineKeyboardMarkup()
+    
+    # نص الرسالة الجديد كما طلب المستخدم
+    message_text = (
+        "🚸| عذراً عزيزي..\n"
+        "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
+        f"- Link: {channel_to_show['link']}\n\n"
+        "‼️| اشترك ثم ارسل /start"
+    )
 
-    if "link" in channel_to_show and channel_to_show["link"]:
-        channel_name = channel_to_show["link"].split('/')[-1].split('?')[0]
-        if channel_name.startswith('-100'):
-            channel_name = f"قناة ID: {channel_name}"
-        elif channel_name.startswith('+'):
-            channel_name = "قناة خاصة"
-        else:
-            channel_name = f"قناة: @{channel_name}"
-        markup.add(types.InlineKeyboardButton(channel_name, url=channel_to_show["link"]))
-    
+    markup = types.InlineKeyboardMarkup()
+    # زر التحقق بعد الاشتراك فقط
     markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
-    
-    message_text = get_mandatory_message_text()
     
     bot.send_message(
         user_id,
-        f"{message_text}\n\n**الرجاء الاشتراك في القناة رقم {current_index + 1} من {len(channels)}:**",
+        message_text,
         reply_markup=markup,
-        disable_web_page_preview=True
+        disable_web_page_preview=True # لضمان عدم ظهور معاينة الرابط
     )
     pending_mandatory_check[user_id] = True # وضع المستخدم في حالة انتظار التحقق
 
@@ -294,7 +288,9 @@ def handle_activation_messages(message):
             bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح!")
             # تحقق هنا مما إذا كان الاشتراك الإجباري مفعلاً
             if is_post_subscribe_check_enabled() and not is_mandatory_subscribed(user_id):
-                send_mandatory_subscription_message(user_id) # طلب الاشتراك الإجباري
+                # إذا كان التحقق مفعلاً ولم يكمل المستخدم الاشتراك الإجباري، ارسل رسالة القناة الأولى
+                update_user_mandatory_progress(user_id, 0) # تأكد أن المستخدم يبدأ من القناة الأولى
+                send_mandatory_subscription_message(user_id) 
             else:
                 set_mandatory_subscribed(user_id) # اعتباره مشتركاً إذا كان التحقق معطلاً أو كان قد أكمله مسبقاً
                 bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى فيديوهات1!", reply_markup=main_keyboard())
@@ -324,15 +320,14 @@ def start(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    # التحقق مما إذا كان المستخدم لديه وصول لـ فيديوهات1 (بشرط إكمال الاشتراك الإجباري إذا كان مفعلاً)
     requires_mandatory_check = is_post_subscribe_check_enabled()
     
+    # يجب أن يكون المستخدم قد أتم الاشتراك الإجباري أو لا يتطلب الاشتراك الإجباري
     has_v1_access_and_mandatory_done = user_id in load_approved_users(approved_v1_col) and \
                                       (is_mandatory_subscribed(user_id) or not requires_mandatory_check)
     
     has_v2_access = user_id in load_approved_users(approved_v2_col)
     
-    # المستخدم لديه أي نوع من الوصول لعرض الأزرار السفلية
     can_access_main_keyboard = has_v1_access_and_mandatory_done or has_v2_access
 
     if user_id == OWNER_ID:
@@ -387,13 +382,13 @@ def handle_check_mandatory_sub(call):
 
     if current_index >= len(channels): # المستخدم أتم جميع الاشتراكات بالفعل
         set_mandatory_subscribed(user_id)
-        bot.edit_message_text(
+        # لا نرسل رسالة "تهانينا" هنا، بل بعد إعادة توجيه المستخدم إذا لزم الأمر
+        bot.edit_message_reply_markup(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
-            reply_markup=None
+            reply_markup=None # إزالة الزر
         )
-        bot.send_message(user_id, "اختر قسم الفيديوهات:", reply_markup=main_keyboard())
+        bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
         return
 
@@ -407,7 +402,7 @@ def handle_check_mandatory_sub(call):
             update_user_mandatory_progress(user_id, next_index)
             
             if next_index < len(channels):
-                # لا يزال هناك قنوات أخرى للاشتراك بها
+                # لا يزال هناك قنوات أخرى للاشتراك بها، أظهر القناة التالية
                 bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
@@ -604,6 +599,7 @@ def owner_callback_query_handler(call):
     waiting_for_broadcast.pop(user_id, None)
     owner_state.pop(user_id, None) # مسح حالة الإدخال الخاصة بالمالك
 
+    # لا يوجد "main_admin_menu" مباشر هنا بعد حذف زر الإدارة، بل يتم إعادة عرض اللوحة الرئيسية
     if data == "main_admin_menu":
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -652,7 +648,8 @@ def owner_callback_query_handler(call):
         bot.send_message(user_id, text)
         waiting_for_delete[user_id] = {"category": category, "videos": videos}
 
-    elif data == "broadcast_menu": # معالج زر الإذاعة الجديد
+    # معالج زر الإذاعة الجديد يقود إلى قائمة فرعية
+    elif data == "broadcast_menu": 
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -726,14 +723,18 @@ def owner_callback_query_handler(call):
             text="إحصائيات وإدارة المستخدمين:",
             reply_markup=statistics_admin_keyboard()
         )
-    elif data == "clear_approved_users":
-        # تأكيد قبل الحذف
+    elif data == "clear_approved_users_confirm": # معالج زر التأكيد
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("نعم، احذف 🗑️", callback_data="confirm_clear_approved_users"))
-        markup.add(types.InlineKeyboardButton("إلغاء ↩️", callback_data="main_admin_menu"))
-        bot.send_message(user_id, "⚠️ هل أنت متأكد من حذف جميع المستخدمين المقبولين؟ هذا سيجعلهم بحاجة لإعادة التفعيل.", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("نعم، احذف 🗑️", callback_data="clear_approved_users_execute"))
+        markup.add(types.InlineKeyboardButton("إلغاء ↩️", callback_data="statistics_menu")) # العودة لقائمة الإحصائيات
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="⚠️ هل أنت متأكد تمامًا من حذف جميع المستخدمين المقبولين؟ هذا سيؤدي إلى مسح جميع بياناتهم وسيحتاجون إلى إعادة التفعيل بالكامل.",
+            reply_markup=markup
+        )
     
-    elif data == "confirm_clear_approved_users":
+    elif data == "clear_approved_users_execute": # معالج تنفيذ الحذف الفعلي
         approved_v1_col.delete_many({})
         approved_v2_col.delete_many({})
         notified_users_col.delete_many({})
@@ -743,7 +744,7 @@ def owner_callback_query_handler(call):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="✅ تم حذف جميع المستخدمين المقبولين بنجاح.",
+            text="✅ تم حذف جميع المستخدمين المقبولين بنجاح. سيحتاجون إلى إعادة التفعيل.",
             reply_markup=None
         )
         bot.send_message(
@@ -828,6 +829,7 @@ def handle_await_delete_mandatory_channel_index(message):
     except ValueError:
         bot.send_message(user_id, "❌ يرجى إرسال رقم صالح من القائمة.", reply_markup=types.ReplyKeyboardRemove())
     
+    # بعد أي عملية حذف أو خطأ، أعد المستخدم إلى القائمة الرئيسية
     owner_state.pop(user_id)
     bot.send_message(
         user_id,
