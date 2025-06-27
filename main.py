@@ -201,10 +201,11 @@ def get_mandatory_message_text():
     message_doc = mandatory_message_col.find_one({})
     if message_doc and "text" in message_doc:
         return message_doc["text"]
+    # النص الافتراضي الجديد مع placeholder للرابط
     return (
         "🚸| عذراً عزيزي..\n"
         "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
-        "- Link: {channel_link}\n\n"
+        "- Link: {channel_link}\n\n" # تم إضافة {channel_link} هنا
         "‼️| اشترك ثم ارسل /start"
     )
 
@@ -256,7 +257,7 @@ def send_mandatory_subscription_message(user_id):
     
     # نص الرسالة الجديد كما طلب المستخدم
     message_template = get_mandatory_message_text()
-    message_text = message_template.format(channel_link=channel_to_show['link'])
+    message_text = message_template.format(channel_link=channel_to_show['link']) # تمرير رابط القناة هنا
 
     # لا توجد لوحة مفاتيح هنا، فقط نص الرسالة
     bot.send_message(
