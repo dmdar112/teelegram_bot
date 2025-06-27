@@ -22,7 +22,7 @@ CHANNEL_ID_V2 = os.environ.get("CHANNEL_ID_V2")  # آيدي القناة الخ�
 
 # --- إعدادات التفعيل لفيديوهات1 ---
 FINANCE_BOT_USERNAME_V1 = "yynnurybot" 
-FINANCE_BOT_ID_V1 = 6626184534 # أضف معرف بوت التمويل هنا
+FINANCE_BOT_ID_V1 = 6013237190 # أضف معرف بوت التمويل هنا
 ACTIVATION_PHRASE_V1 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
 FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft" 
 
@@ -152,6 +152,12 @@ def manage_videos_keyboard(category):
         types.InlineKeyboardButton(f"حذف فيديو من {category.upper()} 🗑️", callback_data=f"delete_video_{category}")
     )
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
+    return markup
+
+# --- لوحة مفاتيح رسالة التفعيل الأولية للمستخدمين غير المفعلين ---
+def initial_activation_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("لقد قمت بتفعيل البوت ✅", callback_data="activated_bot_check"))
     return markup
 
 
@@ -378,13 +384,16 @@ def start(message):
         send_mandatory_subscription_message(user_id)
     else:
         # إذا لم يكن لديه أي وصول بعد (يوجه لتفعيل فيديوهات1)
+        # --- إضافة الزر الجديد هنا ---
+        markup_for_unactivated = initial_activation_keyboard()
+        # ---------------------------
         bot.send_message(
             user_id,
             "🚫 مرحباً بك! للوصول إلى محتوى البوت، يرجى تفعيل **فيديوهات1** أولاً.\n"
             f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
             "ثم أكمل عملية الدخول وقم ب**إعادة توجيه** رسالة التفعيل التي ستصلك إليّ.\n"
             f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
-            reply_markup=types.ReplyKeyboardRemove(),
+            reply_markup=markup_for_unactivated, # استخدام لوحة المفاتيح الجديدة
             disable_web_page_preview=True
         )
 
@@ -467,13 +476,16 @@ def handle_pending_mandatory_messages(message):
                                      (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
                                      (m.from_user.id not in load_approved_users(approved_v1_col) and m.from_user.id not in load_approved_users(approved_v2_col)))
 def handle_unactivated_user_messages(message):
+    # --- إضافة الزر الجديد هنا ---
+    markup_for_unactivated = initial_activation_keyboard()
+    # ---------------------------
     bot.send_message(
         message.chat.id,
         "🚫 مرحباً بك! للوصول إلى محتوى البوت، يرجى تفعيل **فيديوهات1** أولاً.\n"
         f"للتفعيل، يرجى الدخول إلى بوت التمويل الخاص بنا عبر هذا الرابط:\n{FINANCE_BOT_LINK_V1}\n\n"
         "ثم أكمل عملية الدخول وقم ب**إعادة توجيه** رسالة التفعيل التي ستصلك إليّ.\n"
         f"✅ يجب أن تحتوي رسالة التفعيل على العبارة: '{ACTIVATION_PHRASE_V1}'.",
-        reply_markup=types.ReplyKeyboardRemove(),
+        reply_markup=markup_for_unactivated, # استخدام لوحة المفاتيح الجديدة
         disable_web_page_preview=True
     )
 
@@ -586,7 +598,7 @@ def receive_broadcast_text(message):
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
-        users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col))
+        users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col).union(load_approved_users(mandatory_subscribed_col))) # تضمين جميع المستخدمين
         sent_count = 0
         for user_id_to_send in users_to_broadcast: 
             try:
@@ -769,6 +781,25 @@ def owner_callback_query_handler(call):
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
+
+# --- معالج الزر الجديد "لقد قمت بتفعيل البوت" ---
+@bot.callback_query_handler(func=lambda call: call.data == "activated_bot_check")
+def handle_activated_bot_check_callback(call):
+    bot.answer_callback_query(call.id, "جار التحقق من تفعيلك...")
+    user_id = call.from_user.id
+    
+    # رسالة لتوجيه المستخدم إلى إعادة توجيه رسالة التفعيل
+    bot.send_message(
+        user_id,
+        "لقبول تفعيلك، يرجى **إعادة توجيه** رسالة التفعيل التي استلمتها من بوت التمويل إليّ مباشرة. تأكد أنها الرسالة الأصلية وليست منسوخة.",
+        parse_mode="Markdown"
+    )
+    # يمكنك تحديث الرسالة الأصلية التي تحتوي على الزر لتجنب إعادة الضغط عليه بشكل متكرر
+    bot.edit_message_reply_markup(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=None # إزالة الزر بعد الضغط عليه
+    )
 
 
 # --- معالجات مدخلات المالك الخاصة بـ "الاشتراك الإجباري" ---
