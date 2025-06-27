@@ -27,10 +27,10 @@ ACTIVATION_PHRASE_V1 = "• لقد دخلت بنجاح عبر الرابط ال�
 FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft" 
 
 # --- إعدادات التفعيل لفيديوهات2 ---
-FINANCE_BOT_USERNAME_V2 = "another_finance_bot" 
-FINANCE_BOT_ID_V2 = 1234567890 # أضف معرف بوت التمويل هنا (مثال فقط، قم بتحديثه)
-ACTIVATION_PHRASE_V2 = "✅ تم تفعيل اشتراكك الخاص بمحتوى VIP بنجاح! استمتع بالمشاهدة."
-FINANCE_BOT_LINK_V2 = "https://t.me/another_finance_bot?start=vip_access" 
+FINANCE_BOT_USERNAME_V2 = "yynnurybot" 
+FINANCE_BOT_ID_V2 = 6626184534 # أضف معرف بوت التمويل هنا (مثال فقط، قم بتحديثه)
+ACTIVATION_PHRASE_V2 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 2000 نقطة/نقاط كمكافأة ✨."
+FINANCE_BOT_LINK_V2 = "https://t.me/yynnurybot?start=0006k43lft" 
 
 
 # --- إعداد MongoDB ---
