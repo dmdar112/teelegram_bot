@@ -93,6 +93,11 @@ def set_mandatory_subscribed(user_id):
     # مسح تقدم المستخدم بعد إكمال جميع القنوات لضمان بدء جديد إذا تم إعادة تعيينه
     user_mandatory_progress_col.delete_one({"user_id": user_id})
 
+def remove_mandatory_subscribed(user_id):
+    """إزالة تسجيل أن المستخدم قد أتم الاشتراك الإجباري."""
+    mandatory_subscribed_col.delete_one({"user_id": user_id})
+    user_mandatory_progress_col.delete_one({"user_id": user_id})
+
 
 def main_keyboard():
     # هذه هي لوحة المفاتيح للمستخدمين العاديين
@@ -196,7 +201,12 @@ def get_mandatory_message_text():
     message_doc = mandatory_message_col.find_one({})
     if message_doc and "text" in message_doc:
         return message_doc["text"]
-    return "⚠️ للوصول إلى محتوى البوت، يرجى الاشتراك في القنوات التالية أولاً:\n\nبعد الاشتراك في جميع القنوات، اضغط على زر 'تحقق بعد الاشتراك'." # رسالة افتراضية
+    return (
+        "🚸| عذراً عزيزي..\n"
+        "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
+        "- Link: {channel_link}\n\n"
+        "‼️| اشترك ثم ارسل /start"
+    )
 
 def is_post_subscribe_check_enabled():
     """يجلب حالة تفعيل زر 'تحقق بعد الاشتراك' من MongoDB."""
@@ -245,24 +255,61 @@ def send_mandatory_subscription_message(user_id):
     channel_to_show = channels[current_index]
     
     # نص الرسالة الجديد كما طلب المستخدم
-    message_text = (
-        "🚸| عذراً عزيزي..\n"
-        "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
-        f"- Link: {channel_to_show['link']}\n\n"
-        "‼️| اشترك ثم ارسل /start"
-    )
+    message_template = get_mandatory_message_text()
+    message_text = message_template.format(channel_link=channel_to_show['link'])
 
-    markup = types.InlineKeyboardMarkup()
-    # زر التحقق بعد الاشتراك فقط
-    markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
-    
+    # لا توجد لوحة مفاتيح هنا، فقط نص الرسالة
     bot.send_message(
         user_id,
         message_text,
-        reply_markup=markup,
         disable_web_page_preview=True # لضمان عدم ظهور معاينة الرابط
     )
     pending_mandatory_check[user_id] = True # وضع المستخدم في حالة انتظار التحقق
+
+def check_user_mandatory_subscription_status(user_id):
+    """
+    يتحقق من حالة اشتراك المستخدم في جميع القنوات الإجبارية.
+    يعيد True إذا كان مشتركاً في جميعها، False إذا لم يكن.
+    يقوم بتحديث تقدم المستخدم في الاشتراك.
+    """
+    if not is_post_subscribe_check_enabled():
+        set_mandatory_subscribed(user_id) # إذا كان التحقق معطلاً، اعتبره مشتركاً
+        return True
+
+    channels = get_mandatory_channels()
+    if not channels:
+        set_mandatory_subscribed(user_id) # لا توجد قنوات إجبارية، اعتبره مشتركاً
+        return True
+
+    all_subscribed = True
+    current_index = 0 # ابدأ من القناة الأولى للتحقق الشامل
+
+    for i, channel in enumerate(channels):
+        try:
+            member = bot.get_chat_member(channel["id"], user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                all_subscribed = False
+                current_index = i # سجل أول قناة لم يشترك بها
+                break
+        except apihelper.ApiTelegramException as e:
+            print(f"Warning: Channel ID {channel['id']} or user {user_id} issue during check: {e}")
+            all_subscribed = False
+            current_index = i # سجل القناة التي حدث بها الخطأ
+            break
+        except Exception as e:
+            print(f"An unexpected error occurred while checking subscription for {user_id} in {channel['id']}: {e}")
+            all_subscribed = False
+            current_index = i # سجل القناة التي حدث بها الخطأ
+            break
+
+    if all_subscribed:
+        set_mandatory_subscribed(user_id)
+        return True
+    else:
+        remove_mandatory_subscribed(user_id) # إزالة حالة الاشتراك الكامل
+        update_user_mandatory_progress(user_id, current_index) # تحديث التقدم لأول قناة غير مشترك بها
+        return False
+
 
 # --- معالجات الأوامر والرسائل ---
 
@@ -370,6 +417,18 @@ def start(message):
 
     requires_mandatory_check = is_post_subscribe_check_enabled()
     
+    # تحقق من حالة الاشتراك الإجباري عند كل /start إذا كان مفعلاً
+    if requires_mandatory_check and user_id != OWNER_ID:
+        if is_mandatory_subscribed(user_id): # إذا كان مسجلاً كمشترك بالكامل
+            # أعد التحقق للتأكد من أنه لم يغادر أي قناة
+            if not check_user_mandatory_subscription_status(user_id):
+                # إذا لم يعد مشتركاً في جميعها، أعد توجيهه لعملية الاشتراك الإجباري
+                send_mandatory_subscription_message(user_id)
+                return
+        elif user_id in load_approved_users(approved_v1_col): # إذا كان لديه وصول لـ V1 لكن لم يكمل الاشتراك الإجباري
+            send_mandatory_subscription_message(user_id)
+            return
+
     has_v1_access_and_mandatory_done = user_id in load_approved_users(approved_v1_col) and \
                                       (is_mandatory_subscribed(user_id) or not requires_mandatory_check)
     
@@ -392,9 +451,7 @@ def start(message):
         )
         bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
-    elif user_id in load_approved_users(approved_v1_col) and not is_mandatory_subscribed(user_id) and requires_mandatory_check:
-        send_mandatory_subscription_message(user_id)
-    else:
+    else: # إذا لم يكن مالكاً ولم يتمكن من الوصول للوحة المفاتيح الرئيسية بعد
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -414,66 +471,6 @@ def start(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
-
-
-# معالج لزر التحقق من الاشتراك الإجباري
-@bot.callback_query_handler(func=lambda call: call.data == "check_mandatory_sub")
-def handle_check_mandatory_sub(call):
-    bot.answer_callback_query(call.id, "جار التحقق من اشتراكك في القنوات...")
-    user_id = call.from_user.id
-    channels = get_mandatory_channels()
-    current_index = get_user_mandatory_progress(user_id)
-
-    if current_index >= len(channels): # المستخدم أتم جميع الاشتراكات بالفعل
-        set_mandatory_subscribed(user_id)
-        # لا نرسل رسالة "تهانينا" هنا، بل بعد إعادة توجيه المستخدم إذا لزم الأمر
-        bot.edit_message_reply_markup(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=None # إزالة الزر
-        )
-        bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
-        pending_mandatory_check.pop(user_id, None)
-        return
-
-    # التحقق من القناة الحالية فقط
-    channel_to_check = channels[current_index]
-    try:
-        member = bot.get_chat_member(channel_to_check["id"], user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            # المستخدم مشترك في القناة الحالية
-            next_index = current_index + 1
-            update_user_mandatory_progress(user_id, next_index)
-            
-            if next_index < len(channels):
-                # لا يزال هناك قنوات أخرى للاشتراك بها، أظهر القناة التالية
-                bot.edit_message_reply_markup(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=None # إزالة الزر القديم
-                )
-                send_mandatory_subscription_message(user_id) # أرسل القناة التالية
-            else:
-                # أتم جميع الاشتراكات
-                set_mandatory_subscribed(user_id)
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
-                    reply_markup=None
-                )
-                pending_mandatory_check.pop(user_id, None)
-        else:
-            bot.send_message(user_id, "⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.", reply_markup=types.ReplyKeyboardRemove())
-            send_mandatory_subscription_message(user_id) # أعد إرسال نفس القناة
-    except apihelper.ApiTelegramException as e:
-        print(f"Warning: Channel ID {channel_to_check['id']} or user {user_id} issue during check: {e}")
-        bot.send_message(user_id, "⚠️ حدث خطأ أثناء التحقق من القناة. يرجى التأكد من أن البوت لديه صلاحية الوصول للقناة وأنك مشترك بها.", reply_markup=types.ReplyKeyboardRemove())
-        send_mandatory_subscription_message(user_id)
-    except Exception as e:
-        print(f"An unexpected error occurred while checking subscription for {user_id} in {channel_to_check['id']}: {e}")
-        bot.send_message(user_id, "⚠️ حدث خطأ غير متوقع أثناء التحقق. يرجى المحاولة مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
-        send_mandatory_subscription_message(user_id)
 
 
 # معالج لرسائل المستخدمين غير المفعلين والذين لم يكملوا الاشتراك الإجباري
