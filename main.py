@@ -59,6 +59,8 @@ waiting_for_delete = {}
 pending_mandatory_check = {}
 # حالة المالك لإدارة إدخالاته (تعيين/حذف قنوات، تعيين رسالة)
 owner_state = {}
+# حالة جديدة لتنظيف المستخدمين المقبولين اختياريا
+waiting_for_selective_clear = {}
 
 
 # --- دوال مساعدة عامة ---
@@ -81,6 +83,10 @@ def remove_approved_user(collection, user_id):
     Removes a user ID from a specified MongoDB collection of approved users.
     """
     collection.delete_one({"user_id": user_id})
+    # حذف المستخدم من mandatory_subscribed_col و user_mandatory_progress_col
+    mandatory_subscribed_col.delete_one({"user_id": user_id})
+    user_mandatory_progress_col.delete_one({"user_id": user_id})
+
 
 def has_notified(user_id):
     """
@@ -206,6 +212,8 @@ def statistics_admin_keyboard():
     """
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(types.InlineKeyboardButton("تنظيف المستخدمين المقبولين 🧹", callback_data="clear_approved_users_confirm")) # Add confirmation
+    # New button for selective clear
+    markup.add(types.InlineKeyboardButton("تنظيف المستخدمين المقبولين اختيار 📝", callback_data="selective_clear_approved_users"))
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
     return markup
 
@@ -494,14 +502,18 @@ def start(message):
             reply_markup=owner_inline_keyboard()
         )
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
-        elif has_v1_access or has_v2_access: # User is activated (has access to either category)
+    elif has_v1_access or has_v2_access: # User is activated (has access to either category)
         if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
             # If check is enabled and user is not subscribed to all mandatory channels
             send_mandatory_subscription_message(user_id)
         else:
             # User is activated and subscribed to all mandatory channels (or check is disabled)
-            # تم تعديل رسالة الترحيب لتكون كما طلبت
-            bot.send_message(user_id, "📂اختر قسم الفيديوهات من الأزرار بالأسفل!", reply_markup=main_keyboard())
+            welcome_message = (
+                f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
+                "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
+                "⚠️ المحتوى +18 - للكبار فقط!"
+            )
+            bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
     else: # User is not activated at all
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
@@ -857,6 +869,7 @@ def owner_callback_query_handler(call):
     waiting_for_delete.pop(user_id, None)
     waiting_for_broadcast.pop(user_id, None)
     owner_state.pop(user_id, None) # Clear owner's input state
+    waiting_for_selective_clear.pop(user_id, None) # Clear selective clear state
 
     # No direct "main_admin_menu" here after removing the manage button, instead re-display the main panel
     if data == "main_admin_menu":
@@ -1024,6 +1037,114 @@ def owner_callback_query_handler(call):
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
+    
+    # --- Handler for selective clear button ---
+    elif data == "selective_clear_approved_users":
+        all_approved_users = list(approved_v1_col.find()) + list(approved_v2_col.find())
+        # Convert to a set to remove duplicates if a user is in both V1 and V2
+        unique_approved_ids = sorted(list(set(user["user_id"] for user in all_approved_users)))
+
+        if not unique_approved_ids:
+            bot.send_message(user_id, "لا يوجد مستخدمون مقبولون لحذفهم حالياً.")
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=statistics_admin_keyboard()
+            )
+            return
+
+        # Fetch user details (first_name, username) for display
+        users_info = []
+        for u_id in unique_approved_ids:
+            try:
+                chat_member = bot.get_chat_member(u_id, u_id) # Get info about the user themselves
+                user_name = chat_member.user.first_name if chat_member.user.first_name else "لا يوجد اسم"
+                user_username = f"@{chat_member.user.username}" if chat_member.user.username else "لا يوجد يوزر"
+                users_info.append({"id": u_id, "name": user_name, "username": user_username})
+            except Exception as e:
+                print(f"Error fetching user info for {u_id}: {e}")
+                users_info.append({"id": u_id, "name": "غير معروف", "username": "غير معروف"})
+
+        text = "📋 قائمة المستخدمين المقبولين (أرسل **معرفات المستخدمين** مفصولة بمسافات أو فواصل لحذفهم):\n\n"
+        for i, user_info in enumerate(users_info, 1):
+            text += (
+                f"{i}. الاسم: {user_info['name']} | اليوزر: {user_info['username']} | الآيدي: `{user_info['id']}`\n"
+            )
+        text += "\nيمكنك إرسال عدة معرفات (IDs) مفصولة بمسافات أو فواصل (مثال: `123456 789012 345678`)."
+        
+        # Store users_info for later lookup
+        waiting_for_selective_clear[user_id] = {"action": "await_user_ids_for_clear", "users_info": users_info}
+
+        bot.send_message(user_id, text, parse_mode="Markdown")
+
+# --- New handler for receiving user IDs for selective clear ---
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_selective_clear.get(m.from_user.id, {}).get("action") == "await_user_ids_for_clear")
+def handle_await_user_ids_for_selective_clear(message):
+    user_id = message.from_user.id
+    input_text = message.text.strip()
+    
+    # Parse input: allow spaces, commas, or newlines
+    input_ids_str = re.split(r'[,\s]+', input_text)
+    user_ids_to_clear = []
+    
+    for uid_str in input_ids_str:
+        try:
+            user_ids_to_clear.append(int(uid_str))
+        except ValueError:
+            bot.send_message(user_id, f"❌ '{uid_str}' ليس معرف مستخدم صالحًا. يرجى إرسال معرفات مستخدمين رقمية فقط.")
+            waiting_for_selective_clear.pop(user_id, None)
+            bot.send_message(
+                user_id,
+                "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+                reply_markup=owner_inline_keyboard()
+            )
+            return
+
+    if not user_ids_to_clear:
+        bot.send_message(user_id, "لم يتم إدخال أي معرفات مستخدمين. يرجى المحاولة مرة أخرى.")
+        waiting_for_selective_clear.pop(user_id, None)
+        bot.send_message(
+            user_id,
+            "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+            reply_markup=owner_inline_keyboard()
+        )
+        return
+
+    cleared_count = 0
+    failed_to_clear = []
+
+    for target_user_id in user_ids_to_clear:
+        result_v1 = remove_approved_user(approved_v1_col, target_user_id)
+        result_v2 = remove_approved_user(approved_v2_col, target_user_id)
+        
+        # Also ensure they are removed from mandatory_subscribed and user_mandatory_progress if they were there
+        mandatory_subscribed_col.delete_one({"user_id": target_user_id})
+        user_mandatory_progress_col.delete_one({"user_id": target_user_id})
+
+        if result_v1.deleted_count > 0 or result_v2.deleted_count > 0:
+            cleared_count += 1
+            # Optionally notify the user who was cleared (if you want, be careful with this)
+            try:
+                bot.send_message(target_user_id, "⚠️ تم إزالة وصولك إلى البوت. يرجى إعادة تفعيل حسابك إذا كنت ترغب في الاستمرار.", reply_markup=types.ReplyKeyboardRemove())
+                start(bot.get_chat(target_user_id)) # Send them to the start to re-activate
+            except Exception as e:
+                print(f"Failed to notify cleared user {target_user_id}: {e}")
+        else:
+            failed_to_clear.append(str(target_user_id))
+
+    response_message = f"✅ تم حذف {cleared_count} مستخدم بنجاح.\n"
+    if failed_to_clear:
+        response_message += f"❌ فشل حذف المستخدمين التاليين (قد لا يكونوا مقبولين): {', '.join(failed_to_clear)}\n"
+    
+    bot.send_message(user_id, response_message, reply_markup=types.ReplyKeyboardRemove())
+    
+    waiting_for_selective_clear.pop(user_id, None)
+    bot.send_message(
+        user_id,
+        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+        reply_markup=owner_inline_keyboard()
+    )
+
 
 # --- New button handler "I have activated the bot" ---
 @bot.callback_query_handler(func=lambda call: call.data == "activated_bot_check")
