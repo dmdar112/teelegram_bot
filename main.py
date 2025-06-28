@@ -541,7 +541,7 @@ def start(message):
     Handles the /start command, greeting the user and presenting options.
     """
     user_id = message.from_user.id
-    first_name = message.from_user.first_name or "لا يوجد اسم"
+    first_name = message.from_user.first_name or "عزيزي" # Default to "عزيزي" if first_name is none
 
     requires_mandatory_check = is_post_subscribe_check_enabled()
     has_v1_access = user_id in load_approved_users(approved_v1_col)
@@ -569,7 +569,7 @@ def start(message):
     else: # User is not activated at all
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
-            "📢 مرحبًا عزيزي!\n\n"
+            f"📢 اهلأ بك عزيزي {first_name} ♥️👋🏼 .\n\n" # Modified line
             "للووصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
             "🔰 خطوات التفعيل:\n\n"
             "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
@@ -700,11 +700,12 @@ def handle_unactivated_user_messages(message):
     """
     Handles messages from completely unactivated users.
     """
+    first_name = message.from_user.first_name or "عزيزي" # Default to "عزيزي" if first_name is none
     markup_for_unactivated = initial_activation_keyboard()
     # New activation message text with the link included directly
     activation_message_text = (
-    "📢 مرحبًا عزيزي!\n\n"
-    "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
+    f"📢 اهلأ بك عزيزي {first_name} ♥️👋🏼 .\n\n" # Modified line
+    "للووصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
     "🔰 خطوات التفعيل:\n\n"
     "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
     "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
@@ -729,6 +730,7 @@ def handle_v1(message):
     Handles the 'Videos1' button.
     """
     user_id = message.from_user.id
+    first_name = message.from_user.first_name or "عزيزي" # Default to "عزيزي" if first_name is none
 
     has_v1_access = user_id in load_approved_users(approved_v1_col)
     requires_mandatory_check = is_post_subscribe_check_enabled()
@@ -737,8 +739,8 @@ def handle_v1(message):
         # If no access yet (directs to activate Videos1)
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
-            "📢 مرحبًا عزيزي!\n\n"
-            "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
+            f"📢 اهلأ بك عزيزي {first_name} ♥️👋🏼 .\n\n" # Modified line
+            "للووصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
             "🔰 خطوات التفعيل:\n\n"
             "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
             "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
@@ -768,6 +770,7 @@ def handle_v2(message):
     Handles the 'Videos2' button, now including mandatory subscription check.
     """
     user_id = message.from_user.id
+    first_name = message.from_user.first_name or "عزيزي" # Default to "عزيزي" if first_name is none
 
     has_v2_access = user_id in load_approved_users(approved_v2_col)
     requires_mandatory_check = is_post_subscribe_check_enabled()
@@ -776,8 +779,8 @@ def handle_v2(message):
         # If no access, show activation message for V2
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
-            "📢 مرحبًا عزيزي!\n\n"
-            "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
+            f"📢 اهلأ بك عزيزي {first_name} ♥️👋🏼 .\n\n" # Modified line
+            "للووصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
             "🔰 خطوات التفعيل:\n\n"
             "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
             "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
