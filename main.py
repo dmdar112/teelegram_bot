@@ -494,15 +494,14 @@ def start(message):
             reply_markup=owner_inline_keyboard()
         )
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
-
-elif has_v1_access or has_v2_access:  # User is activated (has access to either category)
-    if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
-        # If check is enabled and user is not subscribed to all mandatory channels
-        send_mandatory_subscription_message(user_id)
-    else:
-        # User is activated and subscribed to all mandatory channels (or check is disabled)
-        pass  # تم حذف welcome_message فقط
-            bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+    elif has_v1_access or has_v2_access: # User is activated (has access to either category)
+        if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
+            # If check is enabled and user is not subscribed to all mandatory channels
+            send_mandatory_subscription_message(user_id)
+        else:
+    # المستخدم مفعل ومشترك في جميع القنوات الإجبارية (أو تم تعطيل الفحص)
+    # لا توجد رسالة ترحيب محددة، فقط عرض لوحة المفاتيح الرئيسية.
+    bot.send_message(user_id, "الآن يمكنك الوصول إلى المحتوى. اختر قسم الفيديوهات من الأزرار بالأسفل.", reply_markup=main_keyboard())
     else: # User is not activated at all
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
@@ -1254,4 +1253,3 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
-
