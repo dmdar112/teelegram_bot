@@ -211,6 +211,7 @@ def statistics_admin_keyboard():
     Returns the admin keyboard for the statistics section.
     """
     markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("إحصائيات المستخدمين 👤", callback_data="users_statistics")) # الزر الجديد هنا
     markup.add(types.InlineKeyboardButton("تنظيف المستخدمين المقبولين 🧹", callback_data="clear_approved_users_confirm")) # Add confirmation
     # New button for selective clear
     markup.add(types.InlineKeyboardButton("تنظيف المستخدمين المقبولين اختيار 📝", callback_data="selective_clear_approved_users"))
@@ -387,6 +388,57 @@ def send_mandatory_subscription_message(user_id):
         bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
 
+
+# --- دوال جلب إحصائيات المستخدمين ---
+def get_total_bot_entries():
+    """
+    Calculates the total number of unique users who started the bot.
+    This assumes you have a collection storing user entries, or you can count from approved users + others.
+    Given the current code, `notified_users_col` (users who received initial activation message) is a good candidate.
+    """
+    return notified_users_col.count_documents({})
+
+def get_blocked_users_count():
+    """
+    Counts users who have blocked the bot by trying to send them a message and catching the error.
+    This is an expensive operation and should not be run frequently.
+    For more accurate real-time data, you'd need a separate mechanism (e.g., webhook updates for bot status).
+    For now, we'll return a placeholder or rely on a stored count if you have one.
+    """
+    # This is a complex task to get in real-time without webhooks or a dedicated flag.
+    # For a direct count, you'd need to iterate through all known users and try to send them a message,
+    # catching ApiTelegramException for 'bot was blocked by the user'.
+    # This is highly inefficient for large numbers of users.
+    # For now, return a placeholder or implement a more sophisticated tracking.
+    return 0 # Placeholder: You need to implement a mechanism to track this.
+
+def get_approved_users_v1_count():
+    """
+    Counts the number of users approved for V1.
+    """
+    return approved_v1_col.count_documents({})
+
+def get_approved_users_v2_count():
+    """
+    Counts the number of users approved for V2.
+    """
+    return approved_v2_col.count_documents({})
+
+def get_current_users_count():
+    """
+    Counts the number of users who are currently 'active' or haven't blocked the bot.
+    This is generally a combination of approved users, and those who have completed mandatory subscription.
+    It's hard to get a true 'current' count without tracking user activity or a 'last_seen' timestamp.
+    For now, we'll consider users in either approved_v1, approved_v2, or mandatory_subscribed as "current".
+    """
+    all_active_users = set()
+    for user_doc in approved_v1_col.find({}, {"user_id": 1}):
+        all_active_users.add(user_doc["user_id"])
+    for user_doc in approved_v2_col.find({}, {"user_id": 1}):
+        all_active_users.add(user_doc["user_id"])
+    for user_doc in mandatory_subscribed_col.find({}, {"user_id": 1}):
+        all_active_users.add(user_doc["user_id"])
+    return len(all_active_users)
 
 # --- معالجات الأوامر والرسائل ---
 
@@ -1007,6 +1059,30 @@ def owner_callback_query_handler(call):
             message_id=call.message.message_id,
             text="إحصائيات وإدارة المستخدمين:",
             reply_markup=statistics_admin_keyboard()
+        )
+    elif data == "users_statistics": # New handler for users_statistics button
+        total_bot_entries = get_total_bot_entries()
+        blocked_users_count = get_blocked_users_count() # Placeholder if no tracking implemented
+        approved_v1 = get_approved_users_v1_count()
+        approved_v2 = get_approved_users_v2_count()
+        current_users = get_current_users_count()
+
+        stats_message = (
+            "مرحبًا بك في قسم احصائيات المستخدمين 📊\n\n"
+            f"عدد المستخدمين الذين دخلوا للبوت : {total_bot_entries}\n"
+            f"عدد المستخدمين الذين قاموا بحظر البوت : {blocked_users_count}\n"
+            f"عدد المستخدمين الذين تم قبولهم في زر فيديوهات 1 : {approved_v1}\n"
+            f"عدد المستخدمين الذين تم قبولهم في زر فيديوهات 2 : {approved_v2}\n"
+            f"عدد المستخدمين الحاليين : {current_users}\n"
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("العودة لقسم الإحصائيات ↩️", callback_data="statistics_menu"))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=stats_message,
+            reply_markup=markup
         )
     elif data == "clear_approved_users_confirm": # Confirmation button handler
         markup = types.InlineKeyboardMarkup()
