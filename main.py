@@ -307,6 +307,7 @@ def send_mandatory_subscription_message(user_id):
 
     channels = get_mandatory_channels()
     if not channels:
+        # If no mandatory channels are set, send the main keyboard as there's nothing to subscribe to.
         bot.send_message(user_id, "لا توجد قنوات إجبارية محددة حالياً.", reply_markup=main_keyboard())
         return
 
@@ -383,7 +384,7 @@ def handle_activation_messages(message):
 
     if not source_bot_id:
         # If not a forwarded message from a bot, ignore or send an error message
-        bot.send_message(user_id, "⚠️ يرجى **إعادة توجيه** رسالة التفعيل مباشرة من بوت التمويل، وليس نسخها ولصقها.")
+        bot.send_message(user_id, "⚠️ يرجى **إعادة توجيه** رسالة التفعيل مباشرة من بوت التمويل، وليس نسخها ولصقها.", reply_markup=types.ReplyKeyboardRemove())
         return
 
     # Handle V1 activation
@@ -406,6 +407,8 @@ def handle_activation_messages(message):
         # After activation, check mandatory subscription
         if is_post_subscribe_check_enabled() and not is_currently_subscribed_to_all_mandatory_channels(user_id):
             update_user_mandatory_progress(user_id, 0) # Ensure user starts from the first channel
+            # Ensure main keyboard is removed
+            bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True)
             send_mandatory_subscription_message(user_id)
         else:
             set_mandatory_subscribed(user_id) # Consider them subscribed if check is disabled or already completed
@@ -417,7 +420,7 @@ def handle_activation_messages(message):
         if user_id not in load_approved_users(approved_v2_col):
             add_approved_user(approved_v2_col, user_id)
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
-            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح! يمكنك الآن الضغط على زر **فيديوهات2**.", reply_markup=main_keyboard())
+            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح!")
 
             # Notification message for the owner when a new user is automatically accepted (V2)
             owner_notification_message = (
@@ -429,12 +432,18 @@ def handle_activation_messages(message):
             )
             bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
 
+        # After activation, check mandatory subscription for V2 as well
+        if is_post_subscribe_check_enabled() and not is_currently_subscribed_to_all_mandatory_channels(user_id):
+            update_user_mandatory_progress(user_id, 0) # Ensure user starts from the first channel
+            # Ensure main keyboard is removed
+            bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True)
+            send_mandatory_subscription_message(user_id)
         else:
             bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
         return
     else:
         # Forwarded message is not from the required finance bot or does not contain the correct phrase
-        bot.send_message(user_id, "⚠️ هذه ليست رسالة تفعيل صالحة من بوت التمويل المحدد. يرجى التأكد من إعادة توجيه الرسالة الصحيحة.")
+        bot.send_message(user_id, "⚠️ هذه ليست رسالة تفعيل صالحة من بوت التمويل المحدد. يرجى التأكد من إعادة توجيه الرسالة الصحيحة.", reply_markup=types.ReplyKeyboardRemove())
 
 
 # /start function (initial user interface)
@@ -442,35 +451,34 @@ def handle_activation_messages(message):
 def start(message):
     """
     Handles the /start command, greeting the user and presenting options.
+    It now conditionally hides buttons based on activation/subscription status.
     """
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    requires_mandatory_check = is_post_subscribe_check_enabled()
-    has_v1_access = user_id in load_approved_users(approved_v1_col)
-    has_v2_access = user_id in load_approved_users(approved_v2_col)
-
+    # Owner specific logic
     if user_id == OWNER_ID:
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
+        # Remove any lingering reply keyboard for the owner
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
-    elif has_v1_access or has_v2_access: # User is activated (has access to either category)
-        if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
-            # If check is enabled and user is not subscribed to all mandatory channels
-            update_user_mandatory_progress(user_id, 0) # Start from the first channel
-            send_mandatory_subscription_message(user_id)
-        else:
-            # User is activated and subscribed to all mandatory channels (or check is disabled)
-            welcome_message = (
-                f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-                "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
-                "⚠️ المحتوى +18 - للكبار فقط!"
-            )
-            bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
-    else: # User is not activated at all
+        return
+
+    # For regular users, always remove the current keyboard initially
+    bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True)
+
+
+    # User access and subscription status
+    has_v1_access = user_id in load_approved_users(approved_v1_col)
+    has_v2_access = user_id in load_approved_users(approved_v2_col)
+    requires_mandatory_check = is_post_subscribe_check_enabled()
+    is_fully_subscribed_to_mandatory = is_currently_subscribed_to_all_mandatory_channels(user_id)
+
+    # Condition 1: User is NOT activated at all (first time user or failed activation)
+    if not (has_v1_access or has_v2_access):
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -490,6 +498,19 @@ def start(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
+    # Condition 2: User IS activated (either V1 or V2 access) AND needs mandatory subscription
+    # (i.e., mandatory check is enabled AND they are not fully subscribed)
+    elif requires_mandatory_check and not is_fully_subscribed_to_mandatory:
+        update_user_mandatory_progress(user_id, 0)
+        send_mandatory_subscription_message(user_id)
+    # Condition 3: User IS activated AND mandatory subscription is complete (or check is disabled)
+    else:
+        welcome_message = (
+            f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
+            "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
+            "⚠️ المحتوى +18 - للكبار فقط!"
+        )
+        bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
 
 # Handler for the mandatory subscription check button
@@ -540,7 +561,7 @@ def handle_check_mandatory_sub(call):
                     text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
                     reply_markup=None
                 )
-                bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
+                bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard()) # Show main keyboard here
                 pending_mandatory_check.pop(user_id, None)
         else:
             bot.send_message(user_id, "⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.", reply_markup=types.ReplyKeyboardRemove())
@@ -579,6 +600,8 @@ def handle_unactivated_user_messages(message):
     """
     Handles messages from completely unactivated users.
     """
+    # Remove any existing reply keyboard
+    bot.send_message(message.chat.id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True)
     markup_for_unactivated = initial_activation_keyboard()
     # New activation message text with the link included directly
     activation_message_text = (
@@ -606,6 +629,7 @@ def handle_unactivated_user_messages(message):
 def handle_v1(message):
     """
     Handles the 'Videos1' button.
+    It now hides the main keyboard if access is not granted or mandatory subscription is pending.
     """
     user_id = message.from_user.id
 
@@ -614,6 +638,7 @@ def handle_v1(message):
 
     if not has_v1_access:
         # If no access yet (directs to activate Videos1)
+        bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True) # Hide main keyboard
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -635,7 +660,7 @@ def handle_v1(message):
         )
     elif requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
         # Has V1 access but hasn't completed mandatory subscription and check is enabled
-        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.")
+        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.", reply_markup=types.ReplyKeyboardRemove()) # Hide main keyboard
         send_mandatory_subscription_message(user_id)
     else:
         # Has V1 access and completed mandatory subscription (or check is disabled)
@@ -645,6 +670,7 @@ def handle_v1(message):
 def handle_v2(message):
     """
     Handles the 'Videos2' button, now including mandatory subscription check.
+    It now hides the main keyboard if access is not granted or mandatory subscription is pending.
     """
     user_id = message.from_user.id
 
@@ -653,6 +679,7 @@ def handle_v2(message):
 
     if not has_v2_access:
         # If no access, show activation message for V2
+        bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True) # Hide main keyboard
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -674,7 +701,7 @@ def handle_v2(message):
         )
     elif requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
         # Has V2 access but mandatory subscription check is enabled and not completed
-        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات2.")
+        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات2.", reply_markup=types.ReplyKeyboardRemove()) # Hide main keyboard
         send_mandatory_subscription_message(user_id)
     else:
         # Has V2 access and mandatory subscription is either complete or check is disabled
