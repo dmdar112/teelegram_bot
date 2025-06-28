@@ -498,7 +498,7 @@ def start(message):
         if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
             # If check is enabled and user is not subscribed to all mandatory channels
             send_mandatory_subscription_message(user_id)
-                else:
+        else:
             # User is activated and subscribed to all mandatory channels (or check is disabled)
             # تم حذف رسالة الترحيب النصية، وسيتم عرض لوحة المفاتيح فقط.
             bot.send_message(user_id, " ", reply_markup=main_keyboard()) # أرسل نصاً فارغاً أو مسافة واحدة
