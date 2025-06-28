@@ -556,22 +556,24 @@ def handle_check_mandatory_sub(call):
                     {"$set": {"current_channel_index": new_index}},
                     upsert=True
                 )
-                bot.edit_message_text(
+                # Removed the success message "✅ رائع! لقد اشتركت في القناة X."
+                # Just edit the previous message to remove the button
+                bot.edit_message_reply_markup(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    text=f"✅ رائع! لقد اشتركت في القناة {current_index + 1}.",
                     reply_markup=None
                 )
                 send_mandatory_subscription_message(user_id) # Send next channel or completion message
             else:
                 # User not subscribed to the current channel
+                # Removed the button from this message as well
                 bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                     text="⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.",
-                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
+                    reply_markup=None # Removed the button here
                 )
-                # Re-send the link for the current channel
+                # Re-send the link for the current channel with the check button
                 message_text = (
                     f"🚸| عذراً عزيزي..\n"
                     f"🔰| عليك الاشتراك في القناة التالية لتتمكن من استخدام البوت:\n\n"
@@ -1168,4 +1170,3 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
-
