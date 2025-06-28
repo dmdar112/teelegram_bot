@@ -48,7 +48,9 @@ mandatory_channels_col = db["mandatory_channels"]
 mandatory_message_col = db["mandatory_message"] # لتخزين نص رسالة الاشتراك الإجباري
 # --- إضافة مجموعة جديدة لحالة زر التحقق بعد الاشتراك ---
 post_subscribe_check_status_col = db["post_subscribe_check_status"]
-# تم حذف user_mandatory_progress_col لأنه لم يعد مطلوبًا مع هذا المنطق
+# مجموعة جديدة لتتبع تقدم المستخدم في الاشتراك الإجباري
+user_mandatory_progress_col = db["user_mandatory_progress"]
+
 
 # --- الحالات المؤقتة ---
 owner_upload_mode = {}
@@ -105,13 +107,12 @@ def set_mandatory_subscribed(user_id):
     """
     if not has_completed_mandatory_flow_in_db(user_id):
         mandatory_subscribed_col.insert_one({"user_id": user_id, "timestamp": time.time()})
-    # لم نعد نستخدم user_mandatory_progress_col لذا لا حاجة لمسحها هنا
-
+    # Clear user progress after completing all channels to ensure a fresh start if reset
+    user_mandatory_progress_col.delete_one({"user_id": user_id})
 
 def is_currently_subscribed_to_all_mandatory_channels(user_id):
     """
     Checks in real-time if the user is subscribed to all mandatory channels.
-    If not, it ensures their mandatory_subscribed_col entry is cleared to force re-evaluation.
     """
     if not is_post_subscribe_check_enabled():
         return True # If check is disabled, consider them subscribed
@@ -124,18 +125,14 @@ def is_currently_subscribed_to_all_mandatory_channels(user_id):
         try:
             member = bot.get_chat_member(channel["id"], user_id)
             if member.status not in ["member", "administrator", "creator"]:
-                # User is not subscribed to at least one channel, so clear their overall mandatory subscription status
-                mandatory_subscribed_col.delete_one({"user_id": user_id})
-                return False
+                return False # User is not subscribed to at least one channel
         except apihelper.ApiTelegramException as e:
             # If the bot cannot access channel info (e.g., if not an admin)
             # or if the channel ID is invalid, consider them unsubscribed for safety.
             print(f"Error checking channel {channel.get('id', 'N/A')} for user {user_id}: {e}")
-            mandatory_subscribed_col.delete_one({"user_id": user_id}) # Clear on error too
             return False
         except Exception as e:
             print(f"Unexpected error checking channel {channel.get('id', 'N/A')} for user {user_id}: {e}")
-            mandatory_subscribed_col.delete_one({"user_id": user_id}) # Clear on error too
             return False
     return True # User is subscribed to all channels
 
@@ -282,12 +279,30 @@ def is_post_subscribe_check_enabled():
     return status_doc.get("enabled", True) if status_doc else True
 
 
+def get_user_mandatory_progress(user_id):
+    """
+    Retrieves the current channel index the user needs to subscribe to.
+    """
+    progress_doc = user_mandatory_progress_col.find_one({"user_id": user_id})
+    return progress_doc.get("current_channel_index", 0) if progress_doc else 0
+
+def update_user_mandatory_progress(user_id, index):
+    """
+    Updates the current channel index for the user.
+    """
+    user_mandatory_progress_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"current_channel_index": index}},
+        upsert=True
+    )
+
 def send_mandatory_subscription_message(user_id):
     """
-    Sends the mandatory subscription message, showing only the first unsubscribed channel.
+    Sends the mandatory subscription message with necessary buttons, showing only one channel.
     """
     if not is_post_subscribe_check_enabled():
         print(f"Post-subscribe check is disabled for user {user_id}. Skipping mandatory message.")
+        # If check is disabled, do not send the mandatory subscription message
         return
 
     channels = get_mandatory_channels()
@@ -295,47 +310,37 @@ def send_mandatory_subscription_message(user_id):
         bot.send_message(user_id, "لا توجد قنوات إجبارية محددة حالياً.", reply_markup=main_keyboard())
         return
 
-    unsubscribed_channel_found = False
-    for channel in channels:
-        try:
-            member = bot.get_chat_member(channel["id"], user_id)
-            if member.status not in ["member", "administrator", "creator"]:
-                # Found the first unsubscribed channel, send its link
-                message_text = (
-                    "🚸| عذراً عزيزي..\n"
-                    "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
-                    f"- Link: {channel['link']}\n\n"
-                    "‼️| اشترك ثم ارسل /start"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
-                bot.send_message(
-                    user_id,
-                    message_text,
-                    reply_markup=markup,
-                    disable_web_page_preview=True
-                )
-                pending_mandatory_check[user_id] = True # Mark user as awaiting check
-                unsubscribed_channel_found = True
-                break # Exit loop after finding the first unsubscribed channel
-        except apihelper.ApiTelegramException as e:
-            print(f"Error checking channel {channel.get('id', 'N/A')} for user {user_id} in send_mandatory_subscription_message: {e}")
-            # If there's an API error, assume the channel is problematic or user is not subscribed
-            # and stop checking, prompt the user to re-check.
-            bot.send_message(user_id, "⚠️ حدث خطأ أثناء التحقق من القناة. يرجى التأكد من أن البوت لديه صلاحية الوصول للقناة وأنك مشترك بها.")
-            unsubscribed_channel_found = True # Treat as found to stop further checks and prompt again
-            break
-        except Exception as e:
-            print(f"Unexpected error in send_mandatory_subscription_message for {user_id} in {channel.get('id', 'N/A')}: {e}")
-            bot.send_message(user_id, "⚠️ حدث خطأ غير متوقع أثناء التحقق. يرجى المحاولة مرة أخرى.")
-            unsubscribed_channel_found = True # Treat as found
-            break
+    current_index = get_user_mandatory_progress(user_id)
 
-    if not unsubscribed_channel_found:
-        # All channels are subscribed, proceed with completion
+    if current_index >= len(channels):
+        # User has completed all subscriptions
         set_mandatory_subscribed(user_id)
         bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
+        return
+
+    # Show only the current channel
+    channel_to_show = channels[current_index]
+
+    # New message text as requested by the user
+    message_text = (
+        "🚸| عذراً عزيزي..\n"
+        "🔰| عليك الاشتراك في قناة البوت لتتمكن من استخدامه\n\n"
+        f"- Link: {channel_to_show['link']}\n\n"
+        "‼️| اشترك ثم ارسل /start"
+    )
+
+    markup = types.InlineKeyboardMarkup()
+    # Check after subscription button only
+    markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
+
+    bot.send_message(
+        user_id,
+        message_text,
+        reply_markup=markup,
+        disable_web_page_preview=True # To ensure link preview is not shown
+    )
+    pending_mandatory_check[user_id] = True # Put the user in a pending check state
 
 # --- معالجات الأوامر والرسائل ---
 
@@ -377,18 +382,18 @@ def handle_activation_messages(message):
         source_bot_id = message.forward_from_chat.id
 
     if not source_bot_id:
-        bot.send_message(user_id, "⚠️ يرجى **إعادة توجيه** رسالة التفعيل مباشرة من بوت التمويل، وليس نسخها ولصقها.", reply_markup=types.ReplyKeyboardRemove())
+        # If not a forwarded message from a bot, ignore or send an error message
+        bot.send_message(user_id, "⚠️ يرجى **إعادة توجيه** رسالة التفعيل مباشرة من بوت التمويل، وليس نسخها ولصقها.")
         return
-
-    # Flag to check if any access was granted/confirmed
-    access_granted_or_confirmed = False
 
     # Handle V1 activation
     if source_bot_id == FINANCE_BOT_ID_V1 and ACTIVATION_PHRASE_V1 in message_text:
         if user_id not in load_approved_users(approved_v1_col):
             add_approved_user(approved_v1_col, user_id)
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access.")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V1 access (pending mandatory sub).")
             bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات1** بنجاح!")
+
+            # Notification message for the owner when a new user is automatically accepted (V1)
             owner_notification_message = (
                 "لقد تم قبول المستخدم تلقائيًا:\n\n"
                 f"الاسم: {user_name}\n"
@@ -397,16 +402,24 @@ def handle_activation_messages(message):
                 "تم منحه وصولاً إلى: فيديوهات1"
             )
             bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
+
+        # After activation, check mandatory subscription
+        if is_post_subscribe_check_enabled() and not is_currently_subscribed_to_all_mandatory_channels(user_id):
+            update_user_mandatory_progress(user_id, 0) # Ensure user starts from the first channel
+            send_mandatory_subscription_message(user_id)
         else:
-            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات1.")
-        access_granted_or_confirmed = True
+            set_mandatory_subscribed(user_id) # Consider them subscribed if check is disabled or already completed
+            bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى فيديوهات1!", reply_markup=main_keyboard())
+        return
 
     # Handle V2 activation
     elif source_bot_id == FINANCE_BOT_ID_V2 and ACTIVATION_PHRASE_V2 in message_text:
         if user_id not in load_approved_users(approved_v2_col):
             add_approved_user(approved_v2_col, user_id)
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ User {user_id} granted V2 access.")
-            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح!")
+            bot.send_message(user_id, "✅ تم تفعيل وصولك إلى **فيديوهات2** بنجاح! يمكنك الآن الضغط على زر **فيديوهات2**.", reply_markup=main_keyboard())
+
+            # Notification message for the owner when a new user is automatically accepted (V2)
             owner_notification_message = (
                 "لقد تم قبول المستخدم تلقائيًا:\n\n"
                 f"الاسم: {user_name}\n"
@@ -415,22 +428,13 @@ def handle_activation_messages(message):
                 "تم منحه وصولاً إلى: فيديوهات2"
             )
             bot.send_message(OWNER_ID, owner_notification_message, parse_mode="Markdown")
-        else:
-            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.")
-        access_granted_or_confirmed = True
-    else:
-        bot.send_message(user_id, "⚠️ هذه ليست رسالة تفعيل صالحة من بوت التمويل المحدد. يرجى التأكد من إعادة توجيه الرسالة الصحيحة.", reply_markup=types.ReplyKeyboardRemove())
-        return
 
-    # If access was granted or confirmed, re-evaluate mandatory subscription status
-    if access_granted_or_confirmed:
-        if is_post_subscribe_check_enabled():
-            # Always ensure the main keyboard is removed before prompting for mandatory sub
-            bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True)
-            send_mandatory_subscription_message(user_id)
         else:
-            set_mandatory_subscribed(user_id) # Ensure status is set if all checks pass
-            bot.send_message(user_id, "🎉 يمكنك الآن الوصول إلى الأقسام المفعلة لك!", reply_markup=main_keyboard())
+            bot.send_message(user_id, "👍🏼 لديك بالفعل وصول إلى فيديوهات2.", reply_markup=main_keyboard())
+        return
+    else:
+        # Forwarded message is not from the required finance bot or does not contain the correct phrase
+        bot.send_message(user_id, "⚠️ هذه ليست رسالة تفعيل صالحة من بوت التمويل المحدد. يرجى التأكد من إعادة توجيه الرسالة الصحيحة.")
 
 
 # /start function (initial user interface)
@@ -438,36 +442,35 @@ def handle_activation_messages(message):
 def start(message):
     """
     Handles the /start command, greeting the user and presenting options.
-    It now hides buttons if user is not fully subscribed and shows only the missing channel.
     """
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "لا يوجد اسم"
 
-    # Owner specific logic
+    requires_mandatory_check = is_post_subscribe_check_enabled()
+    has_v1_access = user_id in load_approved_users(approved_v1_col)
+    has_v2_access = user_id in load_approved_users(approved_v2_col)
+
     if user_id == OWNER_ID:
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
-        # Remove any lingering reply keyboard for the owner
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
-        return
-
-    # For regular users, always remove the current keyboard initially
-    # This ensures that if they were subscribed and then unsubscribed from a channel,
-    # the main keyboard disappears immediately upon /start.
-    bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True)
-
-
-    # User access and subscription status
-    has_v1_access = user_id in load_approved_users(approved_v1_col)
-    has_v2_access = user_id in load_approved_users(approved_v2_col)
-    requires_mandatory_check = is_post_subscribe_check_enabled()
-    is_fully_subscribed_to_mandatory = is_currently_subscribed_to_all_mandatory_channels(user_id) # This call now also clears DB status if unsubscribed
-
-    # Condition 1: User is NOT activated at all (first time user or failed activation)
-    if not (has_v1_access or has_v2_access):
+    elif has_v1_access or has_v2_access: # User is activated (has access to either category)
+        if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
+            # If check is enabled and user is not subscribed to all mandatory channels
+            update_user_mandatory_progress(user_id, 0) # Start from the first channel
+            send_mandatory_subscription_message(user_id)
+        else:
+            # User is activated and subscribed to all mandatory channels (or check is disabled)
+            welcome_message = (
+                f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
+                "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
+                "⚠️ المحتوى +18 - للكبار فقط!"
+            )
+            bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
+    else: # User is not activated at all
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -487,19 +490,6 @@ def start(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
-    # Condition 2: User IS activated (either V1 or V2 access) AND needs mandatory subscription
-    # (i.e., mandatory check is enabled AND they are not fully subscribed)
-    elif requires_mandatory_check and not is_fully_subscribed_to_mandatory:
-        # User is activated but not subscribed to all mandatory channels, prompt for subscription
-        send_mandatory_subscription_message(user_id)
-    # Condition 3: User IS activated AND mandatory subscription is complete (or check is disabled)
-    else:
-        welcome_message = (
-            f"🔞 مرحباً بك ( {first_name} ) 🏳‍🌈\n"
-            "📂اختر قسم الفيديوهات من الأزرار بالأسفل!\n\n"
-            "⚠️ المحتوى +18 - للكبار فقط!"
-        )
-        bot.send_message(user_id, welcome_message, reply_markup=main_keyboard())
 
 
 # Handler for the mandatory subscription check button
@@ -507,51 +497,108 @@ def start(message):
 def handle_check_mandatory_sub(call):
     """
     Handles the 'check_mandatory_sub' callback to verify user subscription.
-    It now re-evaluates all channels and shows the first missing one.
     """
     bot.answer_callback_query(call.id, "جار التحقق من اشتراكك في القنوات...")
     user_id = call.from_user.id
+    channels = get_mandatory_channels()
+    current_index = get_user_mandatory_progress(user_id)
 
-    # Remove the inline keyboard from the message that triggered the callback
-    try:
+    if current_index >= len(channels): # User has already completed all subscriptions
+        set_mandatory_subscribed(user_id)
         bot.edit_message_reply_markup(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            reply_markup=None # Remove the inline button
+            reply_markup=None # Remove the button
         )
+        bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
+        pending_mandatory_check.pop(user_id, None)
+        return
+
+    # Check the current channel only
+    channel_to_check = channels[current_index]
+    try:
+        member = bot.get_chat_member(channel_to_check["id"], user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            # User is subscribed to the current channel
+            next_index = current_index + 1
+            update_user_mandatory_progress(user_id, next_index)
+
+            if next_index < len(channels):
+                # There are still other channels to subscribe to, show the next channel
+                bot.edit_message_reply_markup(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=None # Remove the old button
+                )
+                send_mandatory_subscription_message(user_id) # Send the next channel
+            else:
+                # Completed all subscriptions
+                set_mandatory_subscribed(user_id)
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
+                    reply_markup=None
+                )
+                bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
+                pending_mandatory_check.pop(user_id, None)
+        else:
+            bot.send_message(user_id, "⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.", reply_markup=types.ReplyKeyboardRemove())
+            send_mandatory_subscription_message(user_id) # Resend the same channel
+    except apihelper.ApiTelegramException as e:
+        print(f"Warning: Channel ID {channel_to_check['id']} or user {user_id} issue during check: {e}")
+        bot.send_message(user_id, "⚠️ حدث خطأ أثناء التحقق من القناة. يرجى التأكد من أن البوت لديه صلاحية الوصول للقناة وأنك مشترك بها.", reply_markup=types.ReplyKeyboardRemove())
+        send_mandatory_subscription_message(user_id)
     except Exception as e:
-        print(f"Error editing message to remove inline keyboard: {e}")
-
-    # Re-evaluate and send the mandatory subscription message
-    # send_mandatory_subscription_message will automatically find the first unsubscribed channel
-    send_mandatory_subscription_message(user_id)
+        print(f"An unexpected error occurred while checking subscription for {user_id} in {channel_to_check['id']}: {e}")
+        bot.send_message(user_id, "⚠️ حدث خطأ غير متوقع أثناء التحقق. يرجى المحاولة مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
+        send_mandatory_subscription_message(user_id)
 
 
-# Handler for general messages from unactivated users or those pending mandatory sub
-# This handler is a fallback and should not interfere with /start or forwarded messages.
+# Handler for unactivated users' messages and those who haven't completed mandatory subscription
 @bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
                                      not (m.forward_from or m.forward_from_chat) and \
-                                     (m.text not in ["فيديوهات1", "فيديوهات2", "/start"]))
-def handle_general_user_messages(message):
+                                     (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
+                                     (m.from_user.id in load_approved_users(approved_v1_col) or m.from_user.id in load_approved_users(approved_v2_col)) and \
+                                     is_post_subscribe_check_enabled() and \
+                                     not is_currently_subscribed_to_all_mandatory_channels(m.from_user.id))
+def handle_pending_mandatory_messages(message):
     """
-    Handles general messages from non-owner users, directing them to /start.
+    Handles messages from users who are approved but haven't completed mandatory subscription.
     """
-    user_id = message.from_user.id
-    has_v1_access = user_id in load_approved_users(approved_v1_col)
-    has_v2_access = user_id in load_approved_users(approved_v2_col)
-    requires_mandatory_check = is_post_subscribe_check_enabled()
-    is_fully_subscribed_to_mandatory = is_currently_subscribed_to_all_mandatory_channels(user_id)
+    bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.", reply_markup=types.ReplyKeyboardRemove())
+    send_mandatory_subscription_message(message.chat.id)
 
-    # If the user is activated but not fully subscribed to mandatory channels
-    if (has_v1_access or has_v2_access) and requires_mandatory_check and not is_fully_subscribed_to_mandatory:
-        bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.", reply_markup=types.ReplyKeyboardRemove())
-        send_mandatory_subscription_message(message.chat.id)
-    # If the user is not activated at all
-    elif not (has_v1_access or has_v2_access):
-        bot.send_message(message.chat.id, "⚠️ للبدء، يرجى إرسال /start.")
-    # If the user is activated and fully subscribed but sent a random message
-    else:
-        bot.send_message(message.chat.id, "👋🏼 أهلًا بك! يرجى اختيار أحد الأزرار بالأسفل.", reply_markup=main_keyboard())
+
+# Handler for unactivated users' messages (not owner) who haven't done anything yet
+@bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
+                                     not (m.forward_from or m.forward_from_chat) and \
+                                     (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
+                                     (m.from_user.id not in load_approved_users(approved_v1_col) and m.from_user.id not in load_approved_users(approved_v2_col)))
+def handle_unactivated_user_messages(message):
+    """
+    Handles messages from completely unactivated users.
+    """
+    markup_for_unactivated = initial_activation_keyboard()
+    # New activation message text with the link included directly
+    activation_message_text = (
+    "📢 مرحبًا عزيزي!\n\n"
+    "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
+    "🔰 خطوات التفعيل:\n\n"
+    "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
+    "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
+    "3️⃣ بعد الاشتراك في جميع القنوات، ستصلك رسالة من بوت التمويل تؤكد تم التفعيل.\n\n"
+    "4️⃣ قم بإعادة (تحويل) رسالة التفعيل إلى هنا – بدون نسخ أو تعديل.\n\n"
+    "✅ بعد تحويل الرسالة سيتم قبولك تلقائيًا.\n\n"
+    "👇 اضغط هنا لتفعيل بوت التمويل:\n"
+    "🔗 https://t.me/yynnurybot?start=0006k43lft"
+)
+    bot.send_message(
+        message.chat.id,
+        activation_message_text, # Use the new text
+        reply_markup=markup_for_unactivated,
+        disable_web_page_preview=True
+    )
 
 
 # Video button handlers for regular users
@@ -559,18 +606,14 @@ def handle_general_user_messages(message):
 def handle_v1(message):
     """
     Handles the 'Videos1' button.
-    It checks activation and mandatory subscription.
     """
     user_id = message.from_user.id
 
     has_v1_access = user_id in load_approved_users(approved_v1_col)
     requires_mandatory_check = is_post_subscribe_check_enabled()
-    is_fully_subscribed_to_mandatory = is_currently_subscribed_to_all_mandatory_channels(user_id)
-
 
     if not has_v1_access:
         # If no access yet (directs to activate Videos1)
-        bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True) # Hide main keyboard
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -590,9 +633,9 @@ def handle_v1(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
-    elif requires_mandatory_check and not is_fully_subscribed_to_mandatory:
+    elif requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
         # Has V1 access but hasn't completed mandatory subscription and check is enabled
-        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.", reply_markup=types.ReplyKeyboardRemove()) # Hide main keyboard
+        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات1.")
         send_mandatory_subscription_message(user_id)
     else:
         # Has V1 access and completed mandatory subscription (or check is disabled)
@@ -601,19 +644,15 @@ def handle_v1(message):
 @bot.message_handler(func=lambda m: m.text == "فيديوهات2")
 def handle_v2(message):
     """
-    Handles the 'Videos2' button.
-    It checks activation and mandatory subscription.
+    Handles the 'Videos2' button, now including mandatory subscription check.
     """
     user_id = message.from_user.id
 
     has_v2_access = user_id in load_approved_users(approved_v2_col)
     requires_mandatory_check = is_post_subscribe_check_enabled()
-    is_fully_subscribed_to_mandatory = is_currently_subscribed_to_all_mandatory_channels(user_id)
-
 
     if not has_v2_access:
         # If no access, show activation message for V2
-        bot.send_message(user_id, "", reply_markup=types.ReplyKeyboardRemove(), disable_notification=True) # Hide main keyboard
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
@@ -633,9 +672,9 @@ def handle_v2(message):
             reply_markup=markup_for_unactivated,
             disable_web_page_preview=True
         )
-    elif requires_mandatory_check and not is_fully_subscribed_to_mandatory:
+    elif requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
         # Has V2 access but mandatory subscription check is enabled and not completed
-        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات2.", reply_markup=types.ReplyKeyboardRemove()) # Hide main keyboard
+        bot.send_message(user_id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى فيديوهات2.")
         send_mandatory_subscription_message(user_id)
     else:
         # Has V2 access and mandatory subscription is either complete or check is disabled
@@ -902,7 +941,7 @@ def owner_callback_query_handler(call):
         approved_v2_col.delete_many({})
         notified_users_col.delete_many({})
         mandatory_subscribed_col.delete_many({})
-        # user_mandatory_progress_col.delete_many({}) # This collection is no longer used for tracking progress
+        user_mandatory_progress_col.delete_many({}) # Clear mandatory subscription progress as well
 
         bot.edit_message_text(
             chat_id=call.message.chat.id,
