@@ -502,6 +502,7 @@ def start(message):
     # المستخدم مفعل ومشترك في جميع القنوات الإجبارية (أو تم تعطيل الفحص)
     # لا توجد رسالة ترحيب محددة، فقط عرض لوحة المفاتيح الرئيسية.
     bot.send_message(user_id, "الآن يمكنك الوصول إلى المحتوى. اختر قسم الفيديوهات من الأزرار بالأسفل.", reply_markup=main_keyboard())
+    
     else: # User is not activated at all
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
