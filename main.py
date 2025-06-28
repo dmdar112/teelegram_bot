@@ -29,7 +29,7 @@ FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft"
 # --- إعدادات التفعيل لفيديوهات2 ---
 FINANCE_BOT_USERNAME_V2 = "MHDN313bot"
 FINANCE_BOT_ID_V2 = 6223173758 # أضف معرف بوت التمويل هنا (مثال فقط، قم بتحديثه)
-ACTIVATION_PHRASE_V2 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 1313 نقطة/نقاط كمكافأة ✨."
+ACTIVATION_PHRASE_V2 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديك على 1313 نقطة/نقاط كمكافأة ✨."
 FINANCE_BOT_LINK_V2 = "https://t.me/MHDN313bot?start=0007mp2ekb"
 
 
@@ -189,6 +189,15 @@ def mandatory_sub_admin_keyboard():
 
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
     return markup
+
+# --- لوحة مفاتيح خيارات حذف القناة الإجبارية ---
+def delete_mandatory_channel_options_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("حذف بالرقم 🔢", callback_data="delete_mandatory_channel_by_number"))
+    markup.add(types.InlineKeyboardButton("حذف بالرابط 🔗", callback_data="delete_mandatory_channel_by_link"))
+    markup.add(types.InlineKeyboardButton("العودة لقائمة الاشتراك الإجباري ↩️", callback_data="mandatory_sub_menu"))
+    return markup
+
 
 # --- لوحة مفاتيح قسم الإحصائيات للمالك ---
 def statistics_admin_keyboard():
@@ -451,7 +460,7 @@ def handle_activation_messages(message):
             owner_notification_message = (
                 "لقد تم قبول المستخدم تلقائيًا:\n\n"
                 f"الاسم: {user_name}\n"
-                f"اليوزر: {user_username}\n"
+                f"اليووزر: {user_username}\n"
                 f"الآيدي: `{user_id}`\n"
                 "تم منحه وصولاً إلى: فيديوهات2"
             )
@@ -501,7 +510,7 @@ def start(message):
         markup_for_unactivated = initial_activation_keyboard()
         activation_message_text = (
             "📢 مرحبًا عزيزي!\n\n"
-            "للوصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
+            "للووصول إلى محتوى البوت، يجب أولًا تفعيل بوت التمويل.\n\n"
             "🔰 خطوات التفعيل:\n\n"
             "1️⃣ اضغط على الرابط في الأسفل للذهب إلى بوت التمويل.\n\n"
             "2️⃣ فعّل بوت التمويل واشترك في جميع القنوات المطلوبة❗️.\n\n"
@@ -928,6 +937,15 @@ def owner_callback_query_handler(call):
         owner_state[user_id] = {"action": "await_mandatory_channel_link_only"}
 
     elif data == "delete_mandatory_channel_start":
+        # Show options for deleting by number or link
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="كيف تود حذف القناة الإجبارية؟",
+            reply_markup=delete_mandatory_channel_options_keyboard()
+        )
+
+    elif data == "delete_mandatory_channel_by_number":
         channels = get_mandatory_channels()
         if not channels:
             bot.send_message(user_id, "لا توجد قنوات إجبارية لإزالتها حالياً.")
@@ -938,13 +956,17 @@ def owner_callback_query_handler(call):
             )
             return
 
-        text = "📋 قائمة القنوات الإجبارية (أرسل معرف القناة الذي تريد حذفه):\n"
-        for channel in channels:
-            # Use channel.get('_id') to ensure it exists
-            text += f"**ID**: `{channel.get('id', 'N/A')}` - **الرابط**: {channel.get('link', 'غير محدد')}\n"
-        text += "\nالرجاء إرسال **معرف القناة (Channel ID)** الذي تريد حذفه (مثال: `-1001234567890`)."
+        text = "📋 قائمة القنوات الإجبارية (أرسل رقم القناة الذي تريد حذفه):\n"
+        for i, channel in enumerate(channels, 1):
+            text += f"{i}. **الرابط**: {channel.get('link', 'غير محدد')} (ID: `{channel.get('id', 'N/A')}`)\n"
+        text += "\nالرجاء إرسال **رقم القناة** الذي تريد حذفه."
         bot.send_message(user_id, text, parse_mode="Markdown")
-        owner_state[user_id] = {"action": "await_delete_mandatory_channel_id"} # Action changed here
+        owner_state[user_id] = {"action": "await_delete_mandatory_channel_by_number", "channels": channels}
+
+    elif data == "delete_mandatory_channel_by_link":
+        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** كاملاً التي تريد حذفها (مثال: `https://t.me/my_channel_link`).", parse_mode="Markdown")
+        owner_state[user_id] = {"action": "await_delete_mandatory_channel_by_link"}
+
 
     elif data == "set_mandatory_message_start":
         current_message = get_mandatory_message_text()
@@ -1090,36 +1112,101 @@ def handle_await_mandatory_channel_link_only(message):
         reply_markup=owner_inline_keyboard()
     )
 
-@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_id")
-def handle_await_delete_mandatory_channel_id(message):
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_by_number")
+def handle_delete_mandatory_channel_by_number(message):
     """
-    Handles deleting a mandatory channel by its ID.
+    Handles deleting a mandatory channel by its number in the list.
     """
     user_id = message.from_user.id
-    channel_id_to_delete_str = message.text.strip()
+    state_data = owner_state.get(user_id, {})
+    channels = state_data.get("channels")
 
     try:
-        channel_id_to_delete = int(channel_id_to_delete_str) # Convert to integer
+        choice = int(message.text)
+        if 1 <= choice <= len(channels):
+            channel_to_delete = channels[choice - 1]
+            channel_id_to_delete = channel_to_delete["id"]
 
-        # Search for the channel by the entered ID
-        result = mandatory_channels_col.delete_one({"id": channel_id_to_delete})
+            result = mandatory_channels_col.delete_one({"id": channel_id_to_delete})
 
-        if result.deleted_count > 0:
-            bot.send_message(user_id, f"✅ تم حذف القناة `{channel_id_to_delete}` بنجاح.", parse_mode="Markdown")
-            # Re-order remaining channels
-            channels = list(mandatory_channels_col.find({}).sort("order", 1))
-            for i, channel in enumerate(channels):
-                mandatory_channels_col.update_one({"_id": channel["_id"]}, {"$set": {"order": i}})
+            if result.deleted_count > 0:
+                bot.send_message(user_id, f"✅ تم حذف القناة `{channel_id_to_delete}` بنجاح.", parse_mode="Markdown")
+                # Re-order remaining channels
+                remaining_channels = list(mandatory_channels_col.find({}).sort("order", 1))
+                for i, channel in enumerate(remaining_channels):
+                    mandatory_channels_col.update_one({"_id": channel["_id"]}, {"$set": {"order": i}})
+            else:
+                bot.send_message(user_id, f"❌ لم يتم العثور على قناة بالرقم {choice}. يرجى التأكد من الرقم.")
         else:
-            bot.send_message(user_id, f"❌ لم يتم العثور على قناة بالمعرف `{channel_id_to_delete}`. يرجى التأكد من المعرف.", parse_mode="Markdown")
+            bot.send_message(user_id, "❌ الرقم غير صالح. يرجى إدخال رقم صحيح من القائمة.")
 
     except ValueError:
-        bot.send_message(user_id, "❌ معرف القناة يجب أن يكون رقمًا. يرجى إدخال معرف رقمي صالح (مثال: -1001234567890).", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(user_id, "❌ الرجاء إدخال رقم صحيح.")
     except Exception as e:
-        bot.send_message(user_id, f"❌ حدث خطأ أثناء حذف القناة: {e}. يرجى المحاولة مرة أخرى.", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(user_id, f"❌ حدث خطأ أثناء حذف القناة: {e}.")
 
-    # After any deletion or error, return the user to the main menu
-    owner_state.pop(user_id)
+    owner_state.pop(user_id, None)
+    bot.send_message(
+        user_id,
+        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+        reply_markup=owner_inline_keyboard()
+    )
+
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_by_link")
+def handle_delete_mandatory_channel_by_link(message):
+    """
+    Handles deleting a mandatory channel by its link.
+    """
+    user_id = message.from_user.id
+    channel_link_to_delete = message.text.strip()
+    channel_id_from_link = None
+
+    cleaned_link = channel_link_to_delete.replace("https://t.me/", "").replace("t.me/", "")
+
+    try:
+        if cleaned_link.startswith("c/"):
+            match = re.search(r'c/(-?\d+)', cleaned_link)
+            if match:
+                channel_id_from_link = int(match.group(1))
+            else:
+                raise ValueError("Could not extract ID from 'c/' link.")
+        elif cleaned_link.startswith("+"):
+            # Can't get channel ID directly from invite link using get_chat method, need manual input
+            bot.send_message(user_id, "⚠️ لا يمكن تحديد القناة الخاصة بروابط الدعوة (+) تلقائياً للحذف. يرجى إدخال الرابط العام للقناة أو حذفها بالرقم.")
+            owner_state.pop(user_id, None)
+            bot.send_message(
+                user_id,
+                "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+                reply_markup=owner_inline_keyboard()
+            )
+            return
+        else:
+            username = cleaned_link.split('/')[0]
+            chat_obj = bot.get_chat(f"@{username}")
+            channel_id_from_link = chat_obj.id
+
+        if not isinstance(channel_id_from_link, int) or channel_id_from_link >= 0 or not str(channel_id_from_link).startswith("-100"):
+            raise ValueError("Invalid channel ID extracted or not a supergroup/channel.")
+
+        result = mandatory_channels_col.delete_one({"id": channel_id_from_link})
+
+        if result.deleted_count > 0:
+            bot.send_message(user_id, f"✅ تم حذف القناة بالرابط `{channel_link_to_delete}` بنجاح.", parse_mode="Markdown")
+            # Re-order remaining channels
+            remaining_channels = list(mandatory_channels_col.find({}).sort("order", 1))
+            for i, channel in enumerate(remaining_channels):
+                mandatory_channels_col.update_one({"_id": channel["_id"]}, {"$set": {"order": i}})
+        else:
+            bot.send_message(user_id, "❌ لم يتم العثور على قناة بهذا الرابط في قائمة القنوات الإجبارية.")
+
+    except apihelper.ApiTelegramException as e:
+        bot.send_message(user_id, f"❌ خطأ في جلب معلومات القناة من الرابط: {e}. قد يكون الرابط غير صحيح، أو لا يمكن للبوت الوصول إلى معلومات القناة.")
+    except ValueError as e:
+        bot.send_message(user_id, f"❌ الرابط غير صالح أو لا يمكن استخراج معرف القناة منه: {e}. يرجى إرسال رابط قناة عامة (اسم مستخدم) أو رابط معرف قناة (يبدأ بـ `c/-100`).")
+    except Exception as e:
+        bot.send_message(user_id, f"❌ حدث خطأ غير متوقع: {e}. يرجى المحاولة مرة أخرى أو التحقق من الرابط.")
+
+    owner_state.pop(user_id, None)
     bot.send_message(
         user_id,
         "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1170,3 +1257,4 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
+
