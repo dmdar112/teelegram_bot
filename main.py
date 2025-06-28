@@ -29,7 +29,7 @@ FINANCE_BOT_LINK_V1 = "https://t.me/yynnurybot?start=0006k43lft"
 # --- إعدادات التفعيل لفيديوهات2 ---
 FINANCE_BOT_USERNAME_V2 = "MHDN313bot"
 FINANCE_BOT_ID_V2 = 6223173758 # أضف معرف بوت التمويل هنا (مثال فقط، قم بتحديثه)
-ACTIVATION_PHRASE_V2 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديك على 1313 نقطة/نقاط كمكافأة ✨."
+ACTIVATION_PHRASE_V2 = "• لقد دخلت بنجاح عبر الرابط الذي قدمه صديقك كدعوة، ونتيجة لذلك، حصل صديقك على 1313 نقطة/نقاط كمكافأة ✨."
 FINANCE_BOT_LINK_V2 = "https://t.me/MHDN313bot?start=0007mp2ekb"
 
 
