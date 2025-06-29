@@ -50,6 +50,10 @@ mandatory_message_col = db["mandatory_message"] # لتخزين نص رسالة �
 post_subscribe_check_status_col = db["post_subscribe_check_status"]
 # مجموعة جديدة لتتبع تقدم المستخدم في الاشتراك الإجباري
 user_mandatory_progress_col = db["user_mandatory_progress"]
+# مجموعة جديدة لحالة تثبيت الرسائل الجماعية
+db["pin_broadcast_status"]
+# مجموعة لتخزين معرفات آخر رسالة جماعية تم إرسالها لكل مستخدم
+db["last_broadcast_messages"]
 
 
 # --- الحالات المؤقتة ---
@@ -61,6 +65,9 @@ pending_mandatory_check = {}
 owner_state = {}
 # حالة جديدة لتنظيف المستخدمين المقبولين اختياريا
 waiting_for_selective_clear = {}
+# حالة جديدة للبث النصي فقط
+waiting_for_text_broadcast = {}
+# لتخزين معرفات رسائل آخر بث لتسهيل التثبيت (تم نقلها للمجموعة db["last_broadcast_messages"])
 
 
 # --- دوال مساعدة عامة ---
@@ -175,6 +182,15 @@ def broadcast_admin_keyboard():
     """
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(types.InlineKeyboardButton("رسالة جماعية مع صورة 🖼️", callback_data="broadcast_photo"))
+    # الأزرار الجديدة
+    markup.add(types.InlineKeyboardButton("رسالة جماعية فقط ✉️", callback_data="broadcast_text_only"))
+
+    # التحقق من حالة التثبيت الحالية لعرض النص الصحيح للزر
+    pin_status_doc = db["pin_broadcast_status"].find_one({})
+    is_pinned = pin_status_doc.get("is_pinned", False) if pin_status_doc else False
+    pin_button_text = "تثبيت رسالة جماعية ✅" if is_pinned else "تثبيت رسالة جماعية ❌"
+    markup.add(types.InlineKeyboardButton(pin_button_text, callback_data="toggle_pin_broadcast"))
+
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
     return markup
 
@@ -388,6 +404,9 @@ def send_mandatory_subscription_message(user_id):
         bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
 
+# دالة مساعدة لجلب رسائل آخر بث
+def get_last_broadcast_messages():
+    return list(db["last_broadcast_messages"].find({}))
 
 # --- دوال جلب إحصائيات المستخدمين ---
 def get_total_bot_entries():
@@ -909,6 +928,57 @@ def receive_broadcast_text(message):
             reply_markup=owner_inline_keyboard()
         )
 
+# معالجات جديدة للبث النصي فقط
+@bot.callback_query_handler(func=lambda call: call.from_user.id == OWNER_ID and call.data == "broadcast_text_only")
+def handle_broadcast_text_only_start(call):
+    """
+    تبدأ عملية إرسال رسالة جماعية نصية فقط.
+    """
+    bot.answer_callback_query(call.id)
+    user_id = call.from_user.id
+    waiting_for_text_broadcast[user_id] = True
+    bot.send_message(user_id, "الآن أرسل لي نص الرسالة التي تريد إرسالها إلى جميع المستخدمين.")
+
+@bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_text_broadcast.get(m.from_user.id) == True)
+def receive_broadcast_text_only(message):
+    """
+    تستقبل نص الرسالة الجماعية النصية فقط وترسلها لجميع المستخدمين.
+    """
+    user_id = message.from_user.id
+    text = message.text
+
+    # يشمل المستخدمين الذين أكملوا الاشتراك الإجباري أيضاً
+    users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col)).union(set(doc["user_id"] for doc in mandatory_subscribed_col.find()))
+    sent_count = 0
+
+    # لتخزين معرف الرسالة للتثبيت المحتمل
+    sent_message_ids = []
+
+    for user_id_to_send in users_to_broadcast:
+        try:
+            # أرسل الرسالة وخزّن معرفها إذا نجحت العملية
+            sent_msg = bot.send_message(user_id_to_send, text)
+            sent_message_ids.append({"chat_id": user_id_to_send, "message_id": sent_msg.message_id})
+            sent_count += 1
+        except Exception as e:
+            print(f"فشل إرسال البث النصي إلى {user_id_to_send}: {e}")
+            pass
+
+    bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة النصية إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
+    waiting_for_text_broadcast.pop(user_id)
+
+    # تخزين معرفات الرسائل التي تم إرسالها للتثبيت
+    if sent_message_ids:
+        db["last_broadcast_messages"].delete_many({}) # مسح الرسائل السابقة
+        db["last_broadcast_messages"].insert_many(sent_message_ids)
+
+    bot.send_message(
+        OWNER_ID,
+        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+        reply_markup=owner_inline_keyboard()
+    )
+
+
 # --- Owner's Inline Callback Query Handlers ---
 @bot.callback_query_handler(func=lambda call: call.from_user.id == OWNER_ID)
 def owner_callback_query_handler(call):
@@ -925,6 +995,8 @@ def owner_callback_query_handler(call):
     waiting_for_broadcast.pop(user_id, None)
     owner_state.pop(user_id, None) # Clear owner's input state
     waiting_for_selective_clear.pop(user_id, None) # Clear selective clear state
+    waiting_for_text_broadcast.pop(user_id, None) # Clear text broadcast state
+
 
     # No direct "main_admin_menu" here after removing the manage button, instead re-display the main panel
     if data == "main_admin_menu":
@@ -986,6 +1058,50 @@ def owner_callback_query_handler(call):
     elif data == "broadcast_photo":
         waiting_for_broadcast["photo"] = True
         bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
+
+    # معالج زر تثبيت رسالة جماعية
+    elif data == "toggle_pin_broadcast":
+        pin_status_doc = db["pin_broadcast_status"].find_one({})
+        is_currently_pinned = pin_status_doc.get("is_pinned", False) if pin_status_doc else False
+
+        last_broadcasts = get_last_broadcast_messages()
+
+        if not last_broadcasts:
+            bot.send_message(user_id, "❌ لا توجد رسالة جماعية سابقة لتثبيتها أو إلغاء تثبيتها.")
+        else:
+            action_successful_count = 0
+            if not is_currently_pinned: # تثبيت الرسالة
+                for msg_info in last_broadcasts:
+                    try:
+                        bot.pin_chat_message(chat_id=msg_info["chat_id"], message_id=msg_info["message_id"], disable_notification=True)
+                        action_successful_count += 1
+                    except Exception as e:
+                        print(f"فشل تثبيت الرسالة {msg_info['message_id']} في الدردشة {msg_info['chat_id']}: {e}")
+                if action_successful_count > 0:
+                    db["pin_broadcast_status"].update_one({}, {"$set": {"is_pinned": True, "timestamp": time.time()}}, upsert=True)
+                    bot.send_message(user_id, f"✅ تم تثبيت الرسالة الجماعية لـ {action_successful_count} مستخدم.")
+                else:
+                    bot.send_message(user_id, "❌ فشل تثبيت الرسالة الجماعية لأي مستخدم. قد لا يكون لديك الصلاحيات الكافية.")
+            else: # إلغاء تثبيت الرسالة
+                for msg_info in last_broadcasts:
+                    try:
+                        bot.unpin_chat_message(chat_id=msg_info["chat_id"], message_id=msg_info["message_id"])
+                        action_successful_count += 1
+                    except Exception as e:
+                        print(f"فشل إلغاء تثبيت الرسالة {msg_info['message_id']} في الدردشة {msg_info['chat_id']}: {e}")
+                if action_successful_count > 0:
+                    db["pin_broadcast_status"].update_one({}, {"$set": {"is_pinned": False, "timestamp": time.time()}}, upsert=True)
+                    bot.send_message(user_id, f"✅ تم إلغاء تثبيت الرسالة الجماعية لـ {action_successful_count} مستخدم.")
+                else:
+                    bot.send_message(user_id, "❌ فشل إلغاء تثبيت الرسالة الجماعية لأي مستخدم. قد لا يكون لديك الصلاحيات الكافية.")
+
+        # تحديث لوحة المفاتيح لتعكس الحالة الجديدة
+        bot.edit_message_reply_markup(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=broadcast_admin_keyboard()
+        )
+
 
     # --- New button handlers for Mandatory Subscription section ---
     elif data == "mandatory_sub_menu":
@@ -1116,7 +1232,7 @@ def owner_callback_query_handler(call):
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
-    
+
     # --- Handler for selective clear button ---
     elif data == "selective_clear_approved_users":
         all_approved_users = list(approved_v1_col.find()) + list(approved_v2_col.find())
@@ -1150,7 +1266,7 @@ def owner_callback_query_handler(call):
                 f"{i}. الاسم: {user_info['name']} | اليوزر: {user_info['username']} | الآيدي: `{user_info['id']}`\n"
             )
         text += "\nيمكنك إرسال عدة معرفات (IDs) مفصولة بمسافات أو فواصل (مثال: `123456 789012 345678`)."
-        
+
         # Store users_info for later lookup
         waiting_for_selective_clear[user_id] = {"action": "await_user_ids_for_clear", "users_info": users_info}
 
@@ -1161,11 +1277,11 @@ def owner_callback_query_handler(call):
 def handle_await_user_ids_for_selective_clear(message):
     user_id = message.from_user.id
     input_text = message.text.strip()
-    
+
     # Parse input: allow spaces, commas, or newlines
     input_ids_str = re.split(r'[,\s]+', input_text)
     user_ids_to_clear = []
-    
+
     for uid_str in input_ids_str:
         try:
             user_ids_to_clear.append(int(uid_str))
@@ -1195,7 +1311,7 @@ def handle_await_user_ids_for_selective_clear(message):
     for target_user_id in user_ids_to_clear:
         result_v1 = remove_approved_user(approved_v1_col, target_user_id)
         result_v2 = remove_approved_user(approved_v2_col, target_user_id)
-        
+
         # Also ensure they are removed from mandatory_subscribed and user_mandatory_progress if they were there
         mandatory_subscribed_col.delete_one({"user_id": target_user_id})
         user_mandatory_progress_col.delete_one({"user_id": target_user_id})
@@ -1214,9 +1330,9 @@ def handle_await_user_ids_for_selective_clear(message):
     response_message = f"✅ تم حذف {cleared_count} مستخدم بنجاح.\n"
     if failed_to_clear:
         response_message += f"❌ فشل حذف المستخدمين التاليين (قد لا يكونوا مقبولين): {', '.join(failed_to_clear)}\n"
-    
+
     bot.send_message(user_id, response_message, reply_markup=types.ReplyKeyboardRemove())
-    
+
     waiting_for_selective_clear.pop(user_id, None)
     bot.send_message(
         user_id,
