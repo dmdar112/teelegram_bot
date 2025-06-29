@@ -913,15 +913,27 @@ def receive_broadcast_text(message):
         # Include users who have completed mandatory subscription as well
         users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col)).union(set(doc["user_id"] for doc in mandatory_subscribed_col.find()))
         sent_count = 0
+
+        # لتخزين معرفات الرسائل التي تم إرسالها للتثبيت
+        sent_message_ids = []
+
         for user_id_to_send in users_to_broadcast:
             try:
-                bot.send_photo(user_id_to_send, photo_id, caption=text)
+                # أرسل الرسالة وخزّن معرفها إذا نجحت العملية
+                sent_msg = bot.send_photo(user_id_to_send, photo_id, caption=text)
+                sent_message_ids.append({"chat_id": user_id_to_send, "message_id": sent_msg.message_id})
                 sent_count += 1
             except Exception as e:
                 print(f"Failed to send broadcast to {user_id_to_send}: {e}")
                 pass
         bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
         waiting_for_broadcast.clear()
+
+        # تخزين معرفات الرسائل التي تم إرسالها للتثبيت
+        if sent_message_ids:
+            db["last_broadcast_messages"].delete_many({}) # مسح الرسائل السابقة
+            db["last_broadcast_messages"].insert_many(sent_message_ids)
+
         bot.send_message(
             OWNER_ID,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
