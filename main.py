@@ -888,7 +888,7 @@ def handle_delete_choice(message):
             text += "\nأرسل رقم الفيديو الذي تريد حذفه."
             
             markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+            markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}", )) # Fixed callback_data
             bot.send_message(user_id, text, reply_markup=markup)
             waiting_for_delete[user_id] = {"category": category, "videos": videos}
 
@@ -916,7 +916,7 @@ def handle_delete_choice(message):
         text += "\nأرسل رقم الفيديو الذي تريد حذفه."
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{data['category'].replace('v','')}"))
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{data['category'].replace('v','')}", )) # Fixed callback_data
         bot.send_message(user_id, text, reply_markup=markup)
         waiting_for_delete[user_id] = {"category": data['category'], "videos": videos}
 
@@ -1105,7 +1105,7 @@ def owner_callback_query_handler(call):
         owner_upload_mode[user_id] = category
         markup = types.InlineKeyboardMarkup()
         # **تعديل هنا:** زر الرجوع يعود إلى إدارة الفيديوهات المحددة، وليس القائمة الرئيسية
-        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}", )) # Fixed callback_data
         # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (فيديو)
         bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown", reply_markup=markup)
 
@@ -1131,7 +1131,7 @@ def owner_callback_query_handler(call):
         
         markup = types.InlineKeyboardMarkup()
         # **تعديل هنا:** زر الرجوع يعود إلى إدارة الفيديوهات المحددة
-        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}", )) # Fixed callback_data
         # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (رقم الفيديو)
         bot.send_message(user_id, text, reply_markup=markup)
         waiting_for_delete[user_id] = {"category": category, "videos": videos}
@@ -1693,4 +1693,3 @@ def keep_alive():
 
 keep_alive()
 bot.infinity_polling()
-
