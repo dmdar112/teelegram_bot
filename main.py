@@ -470,13 +470,16 @@ def set_upload_mode(message):
     if message.from_user.id == OWNER_ID:
         mode = message.text[1:]
         owner_upload_mode[message.from_user.id] = mode
-        bot.reply_to(message, f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.")
-        # After setting upload mode, send the owner inline admin keyboard again
+        # Instead of bot.reply_to, send a message that will be edited later
         bot.send_message(
             message.from_user.id,
-            "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-            reply_markup=owner_inline_keyboard()
+            f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.\n\nالرجاء اختيار عملية:",
+            reply_markup=manage_videos_keyboard(mode)
         )
+        # Remove the main admin keyboard from the previous message if it exists
+        # This part requires the message_id of the main admin keyboard, which isn't stored.
+        # So we'll just send a new one for simplicity as it's a command response.
+        # Alternatively, save the main admin message_id when it's first sent for this user.
 
 
 # Activation message handler (V1 and V2)
@@ -567,11 +570,20 @@ def start(message):
     has_v2_access = user_id in load_approved_users(approved_v2_col)
 
     if user_id == OWNER_ID:
+        # **تعديل هنا: استخدام edit_message_text إذا كانت هناك رسالة سابقة، وإلا إرسال رسالة جديدة**
+        # المشكلة هنا هي أن رسالة /start هي أول رسالة، فلا يمكن تعديلها، لكن الرسالة التالية التي تظهر
+        # من زر "العودة" يجب أن تكون هي التي يتم تعديلها.
+        # للحفاظ على رسالة لوحة الأدمن ثابتة، يجب أن نعرف Message ID الخاص بها.
+        # هذا يتطلب تخزين Message ID في قاعدة البيانات أو متغير عام.
+        # ولكن بما أن هذا يتم عند /start، فالرسالة الأولية ستُرسل دائمًا.
+        # الأهم هو أن تتجنب الرسائل المكررة عند التنقل لاحقًا.
+        
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
             reply_markup=owner_inline_keyboard()
         )
+        # إزالة لوحة المفاتيح العادية لمنع تداخلها مع لوحة الأدمن
         bot.send_message(user_id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
     elif has_v1_access or has_v2_access: # User is activated (has access to either category)
         if requires_mandatory_check and not is_currently_subscribed_to_all_mandatory_channels(user_id):
@@ -848,32 +860,75 @@ def handle_delete_choice(message):
 
             db_videos_col = db[f"videos_{category}"]
             db_videos_col.delete_one({"message_id": message_id})
+            # **تعديل هنا:** حذف رسالة الطلب وإرجاع لوحة الأدمن الرئيسية
+            bot.delete_message(user_id, message.message_id) # حذف رسالة الرقم المدخل
+            # Assuming the last message from the bot was the list of videos.
+            # We can't easily edit that list with the deleted video, so we re-send the management menu.
+            # For better UX, you'd store the list message_id and edit it.
             bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} من قسم {category.upper()} بنجاح.", reply_markup=types.ReplyKeyboardRemove())
-            # After deletion, send the owner inline admin keyboard again
+            # Return to manage videos keyboard
             bot.send_message(
                 user_id,
-                "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-                reply_markup=owner_inline_keyboard()
+                f"إدارة قسم فيديوهات{category.replace('v','')}:",
+                reply_markup=manage_videos_keyboard(category)
             )
             waiting_for_delete.pop(user_id)
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
-            # Added a return to the manage_videos_keyboard if input is invalid
-            bot.send_message(
-                user_id,
-                f"الرجاء اختيار عملية لـ {category.upper()}:",
-                reply_markup=manage_videos_keyboard(category)
-            )
-            waiting_for_delete.pop(user_id) # Clear state after invalid input
+            # **تعديل هنا:** إزالة حالة الانتظار بعد إدخال غير صالح لمنع تكرار الرسالة عند الضغط على زر العودة
+            waiting_for_delete.pop(user_id)
+            # ويفضل إعادة إرسال قائمة الفيديوهات مرة أخرى مع توجيه واضح
+            db_videos_col = db[f"videos_{category}"]
+            videos = list(db_videos_col.find().limit(20)) # Fetch again to ensure updated list
+
+            if not videos:
+                bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
+                # Return to manage videos keyboard
+                bot.send_message(
+                    user_id,
+                    f"إدارة قسم فيديوهات{category.replace('v','')}:",
+                    reply_markup=manage_videos_keyboard(category)
+                )
+                return
+
+            text = f"📋 قائمة فيديوهات {category.upper()}:\n"
+            for i, vid in enumerate(videos, 1):
+                text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+            text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+            
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+            bot.send_message(user_id, text, reply_markup=markup)
+            waiting_for_delete[user_id] = {"category": category, "videos": videos}
+
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
-        # Added a return to the manage_videos_keyboard if input is invalid
-        bot.send_message(
-            user_id,
-            f"الرجاء اختيار عملية لـ {data['category'].upper()}:",
-            reply_markup=manage_videos_keyboard(data['category'])
-        )
-        waiting_for_delete.pop(user_id) # Clear state after invalid input
+        # **تعديل هنا:** إزالة حالة الانتظار بعد إدخال غير صالح
+        waiting_for_delete.pop(user_id)
+        # ويفضل إعادة إرسال قائمة الفيديوهات مرة أخرى مع توجيه واضح
+        db_videos_col = db[f"videos_{data['category']}"] # Use data['category'] as it's still available
+        videos = list(db_videos_col.find().limit(20))
+
+        if not videos:
+            bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {data['category'].upper()} لحذفها.")
+            # Return to manage videos keyboard
+            bot.send_message(
+                user_id,
+                f"إدارة قسم فيديوهات{data['category'].replace('v','')} :",
+                reply_markup=manage_videos_keyboard(data['category'])
+            )
+            return
+
+        text = f"📋 قائمة فيديوهات {data['category'].upper()}:\n"
+        for i, vid in enumerate(videos, 1):
+            text += f"{i}. رسالة رقم: {vid['message_id']}\n"
+        text += "\nأرسل رقم الفيديو الذي تريد حذفه."
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{data['category'].replace('v','')}"))
+        bot.send_message(user_id, text, reply_markup=markup)
+        waiting_for_delete[user_id] = {"category": data['category'], "videos": videos}
+
 
 # Video upload handler (owner-specific)
 @bot.message_handler(content_types=['video'])
@@ -896,10 +951,11 @@ def handle_video_upload(message):
         })
         bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
         owner_upload_mode.pop(user_id)
+        # **تعديل هنا:** بعد الرفع، نعود إلى قائمة إدارة الفيديوهات وليس القائمة الرئيسية مباشرة
         bot.send_message(
             user_id,
-            "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-            reply_markup=owner_inline_keyboard()
+            f"إدارة قسم فيديوهات{mode.replace('v','')}:",
+            reply_markup=manage_videos_keyboard(mode)
         )
     except Exception as e:
         print(f"❌ خطأ في رفع الفيديو: {e}")
@@ -943,6 +999,7 @@ def receive_broadcast_text(message):
             except Exception as e:
                 print(f"Failed to send broadcast to {user_id_to_send}: {e}")
                 pass
+        
         bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
         waiting_for_broadcast.clear()
 
@@ -951,10 +1008,11 @@ def receive_broadcast_text(message):
             db["last_broadcast_messages"].delete_many({}) # مسح الرسائل السابقة
             db["last_broadcast_messages"].insert_many(sent_message_ids)
 
+        # **تعديل هنا:** العودة إلى قائمة الإذاعة، وليس القائمة الرئيسية
         bot.send_message(
             OWNER_ID,
-            "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-            reply_markup=owner_inline_keyboard()
+            "إدارة قسم الإذاعة:",
+            reply_markup=broadcast_admin_keyboard()
         )
 
 # معالجات جديدة للبث النصي فقط
@@ -999,15 +1057,11 @@ def receive_broadcast_text_only(message):
     bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة النصية إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
     waiting_for_text_broadcast.pop(user_id)
 
-    # تخزين معرفات الرسائل التي تم إرسالها للتثبيت
-    if sent_message_ids:
-        db["last_broadcast_messages"].delete_many({}) # مسح الرسائل السابقة
-        db["last_broadcast_messages"].insert_many(sent_message_ids)
-
+    # **تعديل هنا:** العودة إلى قائمة الإذاعة، وليس القائمة الرئيسية
     bot.send_message(
         OWNER_ID,
-        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-        reply_markup=owner_inline_keyboard()
+        "إدارة قسم الإذاعة:",
+        reply_markup=broadcast_admin_keyboard()
     )
 
 
@@ -1030,7 +1084,7 @@ def owner_callback_query_handler(call):
     waiting_for_text_broadcast.pop(user_id, None) # Clear text broadcast state
 
 
-    # No direct "main_admin_menu" here after removing the manage button, instead re-display the main panel
+    # **تعديل هنا:** عند العودة للقائمة الرئيسية، نعدل الرسالة الأصلية.
     if data == "main_admin_menu":
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -1057,6 +1111,7 @@ def owner_callback_query_handler(call):
         category = data.split("_")[2]
         owner_upload_mode[user_id] = category
         markup = types.InlineKeyboardMarkup()
+        # **تعديل هنا:** زر الرجوع يعود إلى إدارة الفيديوهات المحددة، وليس القائمة الرئيسية
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
         bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown", reply_markup=markup)
 
@@ -1067,6 +1122,7 @@ def owner_callback_query_handler(call):
 
         if not videos:
             bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
+            # **تعديل هنا:** إذا لم تكن هناك فيديوهات، نعود إلى قائمة الإدارة بدون انتظار رسالة.
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1080,6 +1136,7 @@ def owner_callback_query_handler(call):
         text += "\nأرسل رقم الفيديو الذي تريد حذفه."
         
         markup = types.InlineKeyboardMarkup()
+        # **تعديل هنا:** زر الرجوع يعود إلى إدارة الفيديوهات المحددة
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
         bot.send_message(user_id, text, reply_markup=markup)
         waiting_for_delete[user_id] = {"category": category, "videos": videos}
@@ -1170,6 +1227,7 @@ def owner_callback_query_handler(call):
         channels = get_mandatory_channels()
         if not channels:
             bot.send_message(user_id, "لا توجد قنوات إجبارية لإزالتها حالياً.")
+            # **تعديل هنا:** إذا لم توجد قنوات، نعود إلى قائمة الاشتراك الإجباري
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1275,6 +1333,7 @@ def owner_callback_query_handler(call):
             text="✅ تم حذف جميع المستخدمين المقبولين بنجاح. سيحتاجون إلى إعادة التفعيل.",
             reply_markup=None
         )
+        # **تعديل هنا:** العودة للقائمة الرئيسية بعد التنظيف
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1289,6 +1348,7 @@ def owner_callback_query_handler(call):
 
         if not unique_approved_ids:
             bot.send_message(user_id, "لا يوجد مستخدمون مقبولون لحذفهم حالياً.")
+            # **تعديل هنا:** العودة لقائمة الإحصائيات إذا لم يوجد مستخدمون
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1338,6 +1398,7 @@ def handle_await_user_ids_for_selective_clear(message):
         except ValueError:
             bot.send_message(user_id, f"❌ '{uid_str}' ليس معرف مستخدم صالحًا. يرجى إرسال معرفات مستخدمين رقمية فقط.")
             waiting_for_selective_clear.pop(user_id, None)
+            # **تعديل هنا:** العودة للقائمة الرئيسية بعد خطأ في الإدخال
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1348,6 +1409,7 @@ def handle_await_user_ids_for_selective_clear(message):
     if not user_ids_to_clear:
         bot.send_message(user_id, "لم يتم إدخال أي معرفات مستخدمين. يرجى المحاولة مرة أخرى.")
         waiting_for_selective_clear.pop(user_id, None)
+        # **تعديل هنا:** العودة للقائمة الرئيسية إذا لم يتم إدخال شيء
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1384,6 +1446,7 @@ def handle_await_user_ids_for_selective_clear(message):
     bot.send_message(user_id, response_message, reply_markup=types.ReplyKeyboardRemove())
 
     waiting_for_selective_clear.pop(user_id, None)
+    # **تعديل هنا:** العودة للقائمة الرئيسية بعد عملية التنظيف
     bot.send_message(
         user_id,
         "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1437,6 +1500,7 @@ def handle_await_mandatory_channel_link_only(message):
         elif cleaned_link.startswith("+"):
             bot.send_message(user_id, "⚠️ لا يمكن إضافة القنوات الخاصة بروابط الدعوة (+) تلقائياً. الرجاء التأكد من أن القناة عامة (اسم مستخدم) أو قم بإضافة الـ ID يدوياً إذا كان البوت مسؤولاً فيها.")
             owner_state.pop(user_id, None)
+            # **تعديل هنا:** العودة للقائمة الرئيسية بعد خطأ في الإدخال
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1468,10 +1532,11 @@ def handle_await_mandatory_channel_link_only(message):
         bot.send_message(user_id, f"❌ حدث خطأ غير متوقع: {e}. يرجى المحاولة مرة أخرى أو التحقق من الرابط.")
 
     owner_state.pop(user_id, None)
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد انتهاء العملية
     bot.send_message(
         user_id,
-        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-        reply_markup=owner_inline_keyboard()
+        "إدارة قنوات الاشتراك الإجباري والرسالة:",
+        reply_markup=mandatory_sub_admin_keyboard()
     )
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_by_number")
@@ -1508,10 +1573,11 @@ def handle_delete_mandatory_channel_by_number(message):
         bot.send_message(user_id, f"❌ حدث خطأ أثناء حذف القناة: {e}.")
 
     owner_state.pop(user_id, None)
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد انتهاء العملية
     bot.send_message(
         user_id,
-        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-        reply_markup=owner_inline_keyboard()
+        "إدارة قنوات الاشتراك الإجباري والرسالة:",
+        reply_markup=mandatory_sub_admin_keyboard()
     )
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and owner_state.get(m.from_user.id, {}).get("action") == "await_delete_mandatory_channel_by_link")
@@ -1536,6 +1602,7 @@ def handle_delete_mandatory_channel_by_link(message):
             # Can't get channel ID directly from invite link using get_chat method, need manual input
             bot.send_message(user_id, "⚠️ لا يمكن تحديد القناة الخاصة بروابط الدعوة (+) تلقائياً للحذف. يرجى إدخال الرابط العام للقناة أو حذفها بالرقم.")
             owner_state.pop(user_id, None)
+            # **تعديل هنا:** العودة للقائمة الرئيسية بعد خطأ في الإدخال
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1569,10 +1636,11 @@ def handle_delete_mandatory_channel_by_link(message):
         bot.send_message(user_id, f"❌ حدث خطأ غير متوقع: {e}. يرجى المحاولة مرة أخرى أو التحقق من الرابط.")
 
     owner_state.pop(user_id, None)
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد انتهاء العملية
     bot.send_message(
         user_id,
-        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-        reply_markup=owner_inline_keyboard()
+        "إدارة قنوات الاشتراك الإجباري والرسالة:",
+        reply_markup=mandatory_sub_admin_keyboard()
     )
 
 
@@ -1588,10 +1656,11 @@ def handle_await_mandatory_message_text(message):
     bot.send_message(user_id, "✅ تم تعيين رسالة الاشتراك الإجباري بنجاح.", reply_markup=types.ReplyKeyboardRemove())
 
     owner_state.pop(user_id)
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد تعيين الرسالة
     bot.send_message(
         user_id,
-        "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
-        reply_markup=owner_inline_keyboard()
+        "إدارة قنوات الاشتراك الإجباري والرسالة:",
+        reply_markup=mandatory_sub_admin_keyboard()
     )
 
 # --- Flask Web Server to run the bot on Render + UptimeRobot ---
