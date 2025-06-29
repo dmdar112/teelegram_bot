@@ -858,8 +858,22 @@ def handle_delete_choice(message):
             waiting_for_delete.pop(user_id)
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
+            # Added a return to the manage_videos_keyboard if input is invalid
+            bot.send_message(
+                user_id,
+                f"الرجاء اختيار عملية لـ {category.upper()}:",
+                reply_markup=manage_videos_keyboard(category)
+            )
+            waiting_for_delete.pop(user_id) # Clear state after invalid input
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
+        # Added a return to the manage_videos_keyboard if input is invalid
+        bot.send_message(
+            user_id,
+            f"الرجاء اختيار عملية لـ {data['category'].upper()}:",
+            reply_markup=manage_videos_keyboard(data['category'])
+        )
+        waiting_for_delete.pop(user_id) # Clear state after invalid input
 
 # Video upload handler (owner-specific)
 @bot.message_handler(content_types=['video'])
@@ -900,7 +914,10 @@ def receive_broadcast_photo(message):
     waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
     waiting_for_broadcast["photo"] = False
     waiting_for_broadcast["awaiting_text"] = True
-    bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.")
+    # Add back button
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="broadcast_menu"))
+    bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
 def receive_broadcast_text(message):
@@ -949,7 +966,10 @@ def handle_broadcast_text_only_start(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     waiting_for_text_broadcast[user_id] = True
-    bot.send_message(user_id, "الآن أرسل لي نص الرسالة التي تريد إرسالها إلى جميع المستخدمين.")
+    # Add back button
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="broadcast_menu"))
+    bot.send_message(user_id, "الآن أرسل لي نص الرسالة التي تريد إرسالها إلى جميع المستخدمين.", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_text_broadcast.get(m.from_user.id) == True)
 def receive_broadcast_text_only(message):
@@ -1036,7 +1056,9 @@ def owner_callback_query_handler(call):
     elif data.startswith("upload_video_"):
         category = data.split("_")[2]
         owner_upload_mode[user_id] = category
-        bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown", reply_markup=markup)
 
     elif data.startswith("delete_video_"):
         category = data.split("_")[2]
@@ -1056,7 +1078,10 @@ def owner_callback_query_handler(call):
         for i, vid in enumerate(videos, 1):
             text += f"{i}. رسالة رقم: {vid['message_id']}\n"
         text += "\nأرسل رقم الفيديو الذي تريد حذفه."
-        bot.send_message(user_id, text)
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        bot.send_message(user_id, text, reply_markup=markup)
         waiting_for_delete[user_id] = {"category": category, "videos": videos}
 
     # New broadcast button handler leads to a submenu
@@ -1069,7 +1094,9 @@ def owner_callback_query_handler(call):
         )
     elif data == "broadcast_photo":
         waiting_for_broadcast["photo"] = True
-        bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="broadcast_menu"))
+        bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.", reply_markup=markup)
 
     # معالج زر تثبيت رسالة جماعية
     elif data == "toggle_pin_broadcast":
@@ -1125,7 +1152,9 @@ def owner_callback_query_handler(call):
         )
 
     elif data == "set_mandatory_channel_by_link_start":
-        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** (مثال: `https://t.me/my_channel_link` أو `https://t.me/c/-1001234567890`).", parse_mode="Markdown")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="mandatory_sub_menu"))
+        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** (مثال: `https://t.me/my_channel_link` أو `https://t.me/c/-1001234567890`).", parse_mode="Markdown", reply_markup=markup)
         owner_state[user_id] = {"action": "await_mandatory_channel_link_only"}
 
     elif data == "delete_mandatory_channel_start":
@@ -1152,17 +1181,24 @@ def owner_callback_query_handler(call):
         for i, channel in enumerate(channels, 1):
             text += f"{i}. **الرابط**: {channel.get('link', 'غير محدد')} (ID: `{channel.get('id', 'N/A')}`)\n"
         text += "\nالرجاء إرسال **رقم القناة** الذي تريد حذفه."
-        bot.send_message(user_id, text, parse_mode="Markdown")
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="delete_mandatory_channel_start")) # Back to delete options
+        bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=markup)
         owner_state[user_id] = {"action": "await_delete_mandatory_channel_by_number", "channels": channels}
 
     elif data == "delete_mandatory_channel_by_link":
-        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** كاملاً التي تريد حذفها (مثال: `https://t.me/my_channel_link`).", parse_mode="Markdown")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="delete_mandatory_channel_start")) # Back to delete options
+        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** كاملاً التي تريد حذفها (مثال: `https://t.me/my_channel_link`).", parse_mode="Markdown", reply_markup=markup)
         owner_state[user_id] = {"action": "await_delete_mandatory_channel_by_link"}
 
 
     elif data == "set_mandatory_message_start":
         current_message = get_mandatory_message_text()
-        bot.send_message(user_id, f"الرجاء إرسال نص رسالة الاشتراك الإجباري الجديدة.\n\nالرسالة الحالية:\n`{current_message}`", parse_mode="Markdown")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="mandatory_sub_menu"))
+        bot.send_message(user_id, f"الرجاء إرسال نص رسالة الاشتراك الإجباري الجديدة.\n\nالرسالة الحالية:\n`{current_message}`", parse_mode="Markdown", reply_markup=markup)
         owner_state[user_id] = {"action": "await_mandatory_message_text"}
 
     # --- Add handlers for toggle post-subscribe check buttons ---
@@ -1281,8 +1317,10 @@ def owner_callback_query_handler(call):
 
         # Store users_info for later lookup
         waiting_for_selective_clear[user_id] = {"action": "await_user_ids_for_clear", "users_info": users_info}
-
-        bot.send_message(user_id, text, parse_mode="Markdown")
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="statistics_menu"))
+        bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=markup)
 
 # --- New handler for receiving user IDs for selective clear ---
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_selective_clear.get(m.from_user.id, {}).get("action") == "await_user_ids_for_clear")
