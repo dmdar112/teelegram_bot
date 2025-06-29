@@ -67,7 +67,7 @@ owner_state = {}
 waiting_for_selective_clear = {}
 # حالة جديدة للبث النصي فقط
 waiting_for_text_broadcast = {}
-# لتخزين معرفات رسائل آخر بث لتسهيل التثبيت (تم نقلها للمجموعة db["last_broadcast_messages"])
+# لتخزين معرفات آخر رسالة جماعية تم إرسالها لكل مستخدم (تم نقلها للمجموعة db["last_broadcast_messages"])
 
 
 # --- دوال مساعدة عامة ---
@@ -188,7 +188,7 @@ def broadcast_admin_keyboard():
     # التحقق من حالة التثبيت الحالية لعرض النص الصحيح للزر
     pin_status_doc = db["pin_broadcast_status"].find_one({})
     is_pinned = pin_status_doc.get("is_pinned", False) if pin_status_doc else False
-    pin_button_text = "تثبيت رسالة جماعية ✅" if is_pinned else "تثبيت رسالة جماعية ❌"
+    pin_button_text = "تثبيت رسالة جماعية ✅" if is_pinned else "إلغاء تثبيت رسالة جماعية ❌"
     markup.add(types.InlineKeyboardButton(pin_button_text, callback_data="toggle_pin_broadcast"))
 
     markup.add(types.InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data="main_admin_menu"))
@@ -334,9 +334,10 @@ def get_unsubscribed_mandatory_channels(user_id):
             unsubscribed_channels.append(channel)
     return unsubscribed_channels
 
-def send_mandatory_subscription_message(user_id):
+def send_mandatory_subscription_message(user_id, message_id=None, chat_id=None):
     """
     Sends the mandatory subscription message with necessary buttons, showing only one unsubscribed channel at a time.
+    Supports editing an existing message.
     """
     if not is_post_subscribe_check_enabled():
         print(f"Post-subscribe check is disabled for user {user_id}. Skipping mandatory message.")
@@ -345,7 +346,15 @@ def send_mandatory_subscription_message(user_id):
     channels = get_mandatory_channels()
     if not channels:
         set_mandatory_subscribed(user_id)
-        bot.send_message(user_id, "✅ لا توجد قنوات إجبارية حالياً. يمكنك استخدام البوت.", reply_markup=main_keyboard())
+        if message_id and chat_id:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="✅ لا توجد قنوات إجبارية حالياً. يمكنك استخدام البوت.",
+                reply_markup=None
+            )
+        else:
+            bot.send_message(user_id, "✅ لا توجد قنوات إجبارية حالياً. يمكنك استخدام البوت.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
         return
 
@@ -391,17 +400,39 @@ def send_mandatory_subscription_message(user_id):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub"))
 
-        bot.send_message(
-            user_id,
-            message_text,
-            reply_markup=markup,
-            disable_web_page_preview=True
-        )
+        if message_id and chat_id:
+            try:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=message_text,
+                    reply_markup=markup,
+                    disable_web_page_preview=True
+                )
+            except apihelper.ApiTelegramException as e:
+                # If message is too old or already modified by another handler, send new
+                print(f"Failed to edit message {message_id}: {e}. Sending new message.")
+                bot.send_message(user_id, message_text, reply_markup=markup, disable_web_page_preview=True)
+        else:
+            bot.send_message(
+                user_id,
+                message_text,
+                reply_markup=markup,
+                disable_web_page_preview=True
+            )
         pending_mandatory_check[user_id] = True
     else:
         # All channels are subscribed to
         set_mandatory_subscribed(user_id)
-        bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
+        if message_id and chat_id:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
+                reply_markup=None
+            )
+        else:
+            bot.send_message(user_id, "✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
 
 # دالة مساعدة لجلب رسائل آخر بث
@@ -470,14 +501,14 @@ def set_upload_mode(message):
     if message.from_user.id == OWNER_ID:
         mode = message.text[1:]
         owner_upload_mode[message.from_user.id] = mode
-        # Instead of bot.reply_to, send a message that will be edited later
-        # **تعديل هنا: نرسل رسالة جديدة باللوحة الفرعية للتحكم بالفيديوهات**
+        
+        # Send a new message, as this is a command, and then this message can be edited later.
         bot.send_message(
             message.from_user.id,
             f"✅ سيتم حفظ الفيديوهات التالية في قسم {mode.upper()}.\n\nالرجاء اختيار عملية:",
             reply_markup=manage_videos_keyboard(mode)
         )
-        # إزالة لوحة المفاتيح العادية لمنع تداخلها مع لوحة الأدمن (إذا كانت موجودة)
+        # Optionally remove the main reply keyboard if it's visible, as we're switching to inline
         bot.send_message(message.from_user.id, "✅ تم تحديث لوحة التحكم.", reply_markup=types.ReplyKeyboardRemove())
 
 
@@ -569,8 +600,8 @@ def start(message):
     has_v2_access = user_id in load_approved_users(approved_v2_col)
 
     if user_id == OWNER_ID:
-        # عند /start للمالك، نرسل رسالة جديدة بلوحة التحكم
-        # بما أن /start هي نقطة دخول، لا يوجد رسالة سابقة لتعديلها هنا
+        # For /start command, always send a new message as it's the beginning of a conversation.
+        # The key is to manage subsequent navigation using edit_message_text/reply_markup.
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -620,12 +651,14 @@ def handle_check_mandatory_sub(call):
     """
     bot.answer_callback_query(call.id, "جار التحقق من اشتراكك في القناة...")
     user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
 
     channels = get_mandatory_channels()
     if not channels:
         bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
+            chat_id=chat_id,
+            message_id=message_id,
             text="✅ لا توجد قنوات إجبارية حالياً. يمكنك استخدام البوت.",
             reply_markup=None
         )
@@ -649,50 +682,38 @@ def handle_check_mandatory_sub(call):
                     {"$set": {"current_channel_index": new_index}},
                     upsert=True
                 )
-                # Removed the success message "✅ رائع! لقد اشتركت في القناة X."
-                # Just edit the previous message to remove the button
-                bot.edit_message_reply_markup(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=None
-                )
-                send_mandatory_subscription_message(user_id) # Send next channel or completion message
+                # Call send_mandatory_subscription_message to handle sending the next channel or completion message
+                # It will edit the current message
+                send_mandatory_subscription_message(user_id, message_id, chat_id)
             else:
-                # User not subscribed to the current channel
-                # Removed the button from this message as well
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    text="⚠️ لم يتم التحقق من اشتراكك في القناة الحالية. يرجى التأكد من الاشتراك ثم أعد المحاولة.",
-                    reply_markup=None # Removed the button here
-                )
-                # Re-send the link for the current channel with the check button
-                message_text = (
-                    f"🚸| عذراً عزيزي..\n"
-                    f"🔰| عليك الاشتراك في القناة التالية لتتمكن من استخدام البوت:\n\n"
-                    f"القناة {current_index + 1} من {len(channels)}: {current_channel['link']}\n\n"
-                    "‼️| بعد الاشتراك في القناة، اضغط على زر 'تحقق بعد الاشتراك'."
-                )
-                bot.send_message(
-                    user_id,
-                    message_text,
-                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✅ تحقق بعد الاشتراك ✅", callback_data="check_mandatory_sub")),
-                    disable_web_page_preview=True
-                )
+                # User not subscribed to the current channel. Re-send current channel message by editing.
+                send_mandatory_subscription_message(user_id, message_id, chat_id)
         except apihelper.ApiTelegramException as e:
             print(f"Error checking channel {current_channel.get('id', 'N/A')} for user {user_id}: {e}")
-            bot.send_message(user_id, "❌ حدث خطأ أثناء التحقق من القناة. يرجى التأكد من أن البوت لديه صلاحيات المسؤول في القناة أو أن المعرف صحيح.")
-            send_mandatory_subscription_message(user_id) # Re-attempt sending the current channel
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="❌ حدث خطأ أثناء التحقق من القناة. يرجى التأكد من أن البوت لديه صلاحيات المسؤول في القناة أو أن المعرف صحيح.",
+                reply_markup=None
+            )
+            # Re-send the link for the current channel with the check button
+            send_mandatory_subscription_message(user_id)
         except Exception as e:
             print(f"Unexpected error checking channel {current_channel.get('id', 'N/A')} for user {user_id}: {e}")
-            bot.send_message(user_id, "❌ حدث خطأ غير متوقع أثناء التحقق. يرجى المحاولة مرة أخرى.")
-            send_mandatory_subscription_message(user_id) # Re-attempt sending the current channel
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="❌ حدث خطأ غير متوقع أثناء التحقق. يرجى المحاولة مرة أخرى.",
+                reply_markup=None
+            )
+            # Re-send the link for the current channel with the check button
+            send_mandatory_subscription_message(user_id)
     else:
-        # Should not happen if send_mandatory_subscription_message is called correctly, but as a fallback
+        # All channels are subscribed to (should be handled by send_mandatory_subscription_message already)
         set_mandatory_subscribed(user_id)
         bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
+            chat_id=chat_id,
+            message_id=message_id,
             text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
             reply_markup=None
         )
@@ -704,14 +725,16 @@ def handle_check_mandatory_sub(call):
 @bot.message_handler(func=lambda m: m.from_user.id != OWNER_ID and \
                                      not (m.forward_from or m.forward_from_chat) and \
                                      (m.text not in ["فيديوهات1", "فيديوهات2"]) and \
-                                     (m.from_user.id in load_approved_users(approved_v1_col) or m.from_user.id in load_approved_users(approved_v2_col)) and \
+                                     ((m.from_user.id in load_approved_users(approved_v1_col) or m.from_user.id in load_approved_users(approved_v2_col)) and \
                                      is_post_subscribe_check_enabled() and \
-                                     not is_currently_subscribed_to_all_mandatory_channels(m.from_user.id))
+                                     not is_currently_subscribed_to_all_mandatory_channels(m.from_user.id)))
 def handle_pending_mandatory_messages(message):
     """
     Handles messages from users who are approved but haven't completed mandatory subscription.
     """
-    bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.", reply_markup=types.ReplyKeyboardRemove())
+    # Simply re-send the mandatory subscription message without removing reply keyboard
+    # As they might already have it shown, this handles cases where they type something else.
+    bot.send_message(message.chat.id, "⚠️ يرجى إكمال الاشتراك في القنوات الإجبارية أولاً للوصول إلى الأقسام.")
     send_mandatory_subscription_message(message.chat.id)
 
 
@@ -836,50 +859,62 @@ def handle_delete_choice(message):
     """
     user_id = message.from_user.id
     data = waiting_for_delete.get(user_id)
-    if not data: return
+    if not data: return # Should not happen if state is correctly managed
+    
+    category = data["category"]
+    
+    # Try to delete the user's message containing the number
+    try:
+        bot.delete_message(user_id, message.message_id) 
+    except Exception as e:
+        print(f"Failed to delete user's input message: {e}")
+
     try:
         choice = int(message.text)
         videos = data["videos"]
-        category = data["category"]
+        
         if 1 <= choice <= len(videos):
             video_to_delete = videos[choice - 1]
             chat_id = video_to_delete["chat_id"]
-            message_id = video_to_delete["message_id"]
+            message_id_to_delete = video_to_delete["message_id"]
             try:
-                bot.delete_message(chat_id, message_id)
+                bot.delete_message(chat_id, message_id_to_delete)
             except Exception as e:
                 print(f"Failed to delete message from channel: {e}")
                 bot.send_message(user_id, "⚠️ لم أتمكن من حذف الفيديو من القناة. قد يكون تم حذفه مسبقاً أو هناك مشكلة في الصلاحيات.")
 
             db_videos_col = db[f"videos_{category}"]
-            db_videos_col.delete_one({"message_id": message_id})
-            # حذف رسالة الرقم المدخل من قبل المالك
-            bot.delete_message(user_id, message.message_id)
-            bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} من قسم {category.upper()} بنجاح.", reply_markup=types.ReplyKeyboardRemove())
-            # **تعديل هنا: نعدل الرسالة الأصلية التي كانت تعرض قائمة الفيديوهات، أو نرسل رسالة جديدة بلوحة إدارة الفيديوهات**
-            # بما أننا لا نحتفظ بمعرف الرسالة التي عرضت القائمة، الأسهل إرسال رسالة جديدة بلوحة إدارة الفيديوهات
-            bot.send_message(
-                user_id,
-                f"إدارة قسم فيديوهات{category.replace('v','')}:",
-                reply_markup=manage_videos_keyboard(category)
-            )
+            db_videos_col.delete_one({"message_id": message_id_to_delete})
+            
+            bot.send_message(user_id, f"✅ تم حذف الفيديو رقم {choice} من قسم {category.upper()} بنجاح.")
             waiting_for_delete.pop(user_id)
+            # Return to manage videos keyboard, editing the previous message if possible
+            # Assuming `data["message_to_edit_id"]` holds the message ID of the list of videos
+            if "message_to_edit_id" in data:
+                try:
+                    bot.edit_message_text(
+                        chat_id=user_id,
+                        message_id=data["message_to_edit_id"],
+                        text=f"إدارة قسم فيديوهات{category.replace('v','')}:",
+                        reply_markup=manage_videos_keyboard(category)
+                    )
+                except apihelper.ApiTelegramException as e:
+                    print(f"Failed to edit message {data['message_to_edit_id']}: {e}. Sending new.")
+                    bot.send_message(user_id, f"إدارة قسم فيديوهات{category.replace('v','')}:", reply_markup=manage_videos_keyboard(category))
+            else:
+                bot.send_message(user_id, f"إدارة قسم فيديوهات{category.replace('v','')}:", reply_markup=manage_videos_keyboard(category))
+
         else:
             bot.send_message(user_id, "❌ الرقم غير صحيح، حاول مرة أخرى.")
-            # إزالة حالة الانتظار بعد إدخال غير صالح لمنع تكرار الرسالة عند الضغط على زر العودة
-            waiting_for_delete.pop(user_id)
-            # ويفضل إعادة إرسال قائمة الفيديوهات مرة أخرى مع توجيه واضح
+            # Keep waiting for delete if the number is invalid but in range, clear if not.
+            # To re-prompt for correct input, re-send the list of videos.
             db_videos_col = db[f"videos_{category}"]
             videos = list(db_videos_col.find().limit(20)) # Fetch again to ensure updated list
 
             if not videos:
                 bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
-                # العودة إلى قائمة إدارة الفيديوهات
-                bot.send_message(
-                    user_id,
-                    f"إدارة قسم فيديوهات{category.replace('v','')}:",
-                    reply_markup=manage_videos_keyboard(category)
-                )
+                waiting_for_delete.pop(user_id)
+                bot.send_message(user_id, f"إدارة قسم فيديوهات{category.replace('v','')}:", reply_markup=manage_videos_keyboard(category))
                 return
 
             text = f"📋 قائمة فيديوهات {category.upper()}:\n"
@@ -888,37 +923,65 @@ def handle_delete_choice(message):
             text += "\nأرسل رقم الفيديو الذي تريد حذفه."
             
             markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}", )) # Fixed callback_data
-            bot.send_message(user_id, text, reply_markup=markup)
-            waiting_for_delete[user_id] = {"category": category, "videos": videos}
+            markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+            
+            # Edit the original message that listed videos if possible, otherwise send new.
+            if "message_to_edit_id" in data:
+                try:
+                    bot.edit_message_text(
+                        chat_id=user_id,
+                        message_id=data["message_to_edit_id"],
+                        text=text,
+                        reply_markup=markup
+                    )
+                except apihelper.ApiTelegramException as e:
+                    print(f"Failed to edit message {data['message_to_edit_id']}: {e}. Sending new.")
+                    new_msg = bot.send_message(user_id, text, reply_markup=markup)
+                    waiting_for_delete[user_id]["message_to_edit_id"] = new_msg.message_id # Update ID
+            else:
+                new_msg = bot.send_message(user_id, text, reply_markup=markup)
+                waiting_for_delete[user_id]["message_to_edit_id"] = new_msg.message_id # Store ID
+            
+            waiting_for_delete[user_id]["videos"] = videos # Update videos list if it changed
+
 
     except ValueError:
         bot.send_message(user_id, "❌ من فضلك أرسل رقم صالح.")
-        # إزالة حالة الانتظار بعد إدخال غير صالح
-        waiting_for_delete.pop(user_id)
-        # ويفضل إعادة إرسال قائمة الفيديوهات مرة أخرى مع توجيه واضح
-        db_videos_col = db[f"videos_{data['category']}"] # Use data['category'] as it's still available
+        # Re-prompt for correct input, re-send the list of videos.
+        db_videos_col = db[f"videos_{category}"]
         videos = list(db_videos_col.find().limit(20))
 
         if not videos:
-            bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {data['category'].upper()} لحذفها.")
-            # العودة إلى قائمة إدارة الفيديوهات
-            bot.send_message(
-                user_id,
-                f"إدارة قسم فيديوهات{data['category'].replace('v','')} :",
-                reply_markup=manage_videos_keyboard(data['category'])
-            )
+            bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
+            waiting_for_delete.pop(user_id)
+            bot.send_message(user_id, f"إدارة قسم فيديوهات{category.replace('v','')}:", reply_markup=manage_videos_keyboard(category))
             return
 
-        text = f"📋 قائمة فيديوهات {data['category'].upper()}:\n"
+        text = f"📋 قائمة فيديوهات {category.upper()}:\n"
         for i, vid in enumerate(videos, 1):
             text += f"{i}. رسالة رقم: {vid['message_id']}\n"
         text += "\nأرسل رقم الفيديو الذي تريد حذفه."
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{data['category'].replace('v','')}", )) # Fixed callback_data
-        bot.send_message(user_id, text, reply_markup=markup)
-        waiting_for_delete[user_id] = {"category": data['category'], "videos": videos}
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        
+        if "message_to_edit_id" in data:
+            try:
+                bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=data["message_to_edit_id"],
+                    text=text,
+                    reply_markup=markup
+                )
+            except apihelper.ApiTelegramException as e:
+                print(f"Failed to edit message {data['message_to_edit_id']}: {e}. Sending new.")
+                new_msg = bot.send_message(user_id, text, reply_markup=markup)
+                waiting_for_delete[user_id]["message_to_edit_id"] = new_msg.message_id # Update ID
+        else:
+            new_msg = bot.send_message(user_id, text, reply_markup=markup)
+            waiting_for_delete[user_id]["message_to_edit_id"] = new_msg.message_id # Store ID
+
+        waiting_for_delete[user_id]["videos"] = videos # Update videos list
 
 
 # Video upload handler (owner-specific)
@@ -930,6 +993,13 @@ def handle_video_upload(message):
     user_id = message.from_user.id
     mode = owner_upload_mode.get(user_id)
     if user_id != OWNER_ID or not mode: return
+
+    # Try to delete the user's uploaded video message to keep chat clean
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's video message: {e}")
+
     try:
         sent = bot.send_video(
             chat_id=os.environ.get(f"CHANNEL_ID_{mode.upper()}"),
@@ -940,9 +1010,11 @@ def handle_video_upload(message):
             "chat_id": sent.chat.id,
             "message_id": sent.message_id
         })
-        bot.reply_to(message, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
+        bot.send_message(user_id, f"✅ تم حفظ الفيديو في قسم {mode.upper()}.")
         owner_upload_mode.pop(user_id)
-        # **تعديل هنا: بعد الرفع، نعود إلى قائمة إدارة الفيديوهات عن طريق إرسال رسالة جديدة**
+        # Return to manage videos keyboard, editing the last message if available
+        # This requires knowing the message ID of the 'أرسل لي الفيديو' prompt.
+        # For simplicity here, we'll send a new message.
         bot.send_message(
             user_id,
             f"إدارة قسم فيديوهات{mode.replace('v','')}:",
@@ -950,7 +1022,8 @@ def handle_video_upload(message):
         )
     except Exception as e:
         print(f"❌ خطأ في رفع الفيديو: {e}")
-        bot.reply_to(message, "❌ حدث خطأ أثناء حفظ الفيديو.")
+        bot.send_message(user_id, "❌ حدث خطأ أثناء حفظ الفيديو.")
+
 
 # Broadcast message handler (owner-specific)
 @bot.message_handler(func=lambda m: waiting_for_broadcast.get("photo") and m.from_user.id == OWNER_ID, content_types=['photo'])
@@ -958,22 +1031,38 @@ def receive_broadcast_photo(message):
     """
     Receives the photo for a broadcast message.
     """
+    user_id = message.from_user.id
     waiting_for_broadcast["photo_file_id"] = message.photo[-1].file_id
     waiting_for_broadcast["photo"] = False
     waiting_for_broadcast["awaiting_text"] = True
-    # Add back button
+
+    # Delete user's photo message and previous prompt
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's photo message: {e}")
+    # Don't try to edit previous message as it's the 'send photo' prompt, send new.
+    
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="broadcast_menu"))
-    bot.send_message(message.chat.id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.", reply_markup=markup)
+    bot.send_message(user_id, "الآن أرسل لي نص الرسالة التي تريد إرسالها مع الصورة.", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: waiting_for_broadcast.get("awaiting_text") and m.from_user.id == OWNER_ID)
 def receive_broadcast_text(message):
     """
     Receives the text for a broadcast message and sends it.
     """
+    user_id = message.from_user.id
     if waiting_for_broadcast.get("awaiting_text"):
         photo_id = waiting_for_broadcast.get("photo_file_id")
         text = message.text
+
+        # Delete user's text message
+        try:
+            bot.delete_message(user_id, message.message_id)
+        except Exception as e:
+            print(f"Failed to delete user's text message: {e}")
+
         # Include users who have completed mandatory subscription as well
         users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col)).union(set(doc["user_id"] for doc in mandatory_subscribed_col.find()))
         sent_count = 0
@@ -991,7 +1080,7 @@ def receive_broadcast_text(message):
                 print(f"Failed to send broadcast to {user_id_to_send}: {e}")
                 pass
         
-        bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة مع الصورة إلى {sent_count} مستخدم.") # Removed ReplyKeyboardRemove here
         waiting_for_broadcast.clear()
 
         # تخزين معرفات الرسائل التي تم إرسالها للتثبيت
@@ -999,7 +1088,7 @@ def receive_broadcast_text(message):
             db["last_broadcast_messages"].delete_many({}) # مسح الرسائل السابقة
             db["last_broadcast_messages"].insert_many(sent_message_ids)
 
-        # **تعديل هنا: العودة إلى قائمة الإذاعة عن طريق إرسال رسالة جديدة**
+        # Return to broadcast menu
         bot.send_message(
             OWNER_ID,
             "إدارة قسم الإذاعة:",
@@ -1015,10 +1104,16 @@ def handle_broadcast_text_only_start(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     waiting_for_text_broadcast[user_id] = True
-    # Add back button
+    # Edit the current message to show the prompt for text broadcast
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="broadcast_menu"))
-    bot.send_message(user_id, "الآن أرسل لي نص الرسالة التي تريد إرسالها إلى جميع المستخدمين.", reply_markup=markup)
+    
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="الآن أرسل لي نص الرسالة التي تريد إرسالها إلى جميع المستخدمين.", 
+        reply_markup=markup
+    )
 
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_text_broadcast.get(m.from_user.id) == True)
 def receive_broadcast_text_only(message):
@@ -1027,6 +1122,12 @@ def receive_broadcast_text_only(message):
     """
     user_id = message.from_user.id
     text = message.text
+
+    # Delete user's text message
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's text message: {e}")
 
     # يشمل المستخدمين الذين أكملوا الاشتراك الإجباري أيضاً
     users_to_broadcast = load_approved_users(approved_v1_col).union(load_approved_users(approved_v2_col)).union(set(doc["user_id"] for doc in mandatory_subscribed_col.find()))
@@ -1045,10 +1146,10 @@ def receive_broadcast_text_only(message):
             print(f"فشل إرسال البث النصي إلى {user_id_to_send}: {e}")
             pass
 
-    bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة النصية إلى {sent_count} مستخدم.", reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(OWNER_ID, f"✅ تم إرسال الرسالة النصية إلى {sent_count} مستخدم.") # Removed ReplyKeyboardRemove here
     waiting_for_text_broadcast.pop(user_id)
 
-    # **تعديل هنا: العودة إلى قائمة الإذاعة عن طريق إرسال رسالة جديدة**
+    # Return to broadcast menu
     bot.send_message(
         OWNER_ID,
         "إدارة قسم الإذاعة:",
@@ -1075,7 +1176,7 @@ def owner_callback_query_handler(call):
     waiting_for_text_broadcast.pop(user_id, None) # Clear text broadcast state
 
 
-    # **تعديل هنا: عند العودة للقائمة الرئيسية، نعدل الرسالة الأصلية.**
+    # **تعديل هنا:** عند العودة للقائمة الرئيسية، نعدل الرسالة الأصلية.
     if data == "main_admin_menu":
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -1085,7 +1186,6 @@ def owner_callback_query_handler(call):
         )
 
     elif data == "manage_v1":
-        # **تعديل هنا: تعديل الرسالة لعرض لوحة مفاتيح إدارة فيديوهات1**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1093,7 +1193,6 @@ def owner_callback_query_handler(call):
             reply_markup=manage_videos_keyboard("v1")
         )
     elif data == "manage_v2":
-        # **تعديل هنا: تعديل الرسالة لعرض لوحة مفاتيح إدارة فيديوهات2**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1105,9 +1204,15 @@ def owner_callback_query_handler(call):
         owner_upload_mode[user_id] = category
         markup = types.InlineKeyboardMarkup()
         # **تعديل هنا:** زر الرجوع يعود إلى إدارة الفيديوهات المحددة، وليس القائمة الرئيسية
-        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}", )) # Fixed callback_data
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (فيديو)
-        bot.send_message(user_id, f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", parse_mode="Markdown", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        # Edit the current message to display the upload prompt
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"أرسل لي الفيديو الذي تريد رفعه لـ **{category.upper()}**.", 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
 
     elif data.startswith("delete_video_"):
         category = data.split("_")[2]
@@ -1116,7 +1221,7 @@ def owner_callback_query_handler(call):
 
         if not videos:
             bot.send_message(user_id, f"لا يوجد فيديوهات حالياً في قسم {category.upper()} لحذفها.")
-            # **تعديل هنا: إذا لم تكن هناك فيديوهات، نعدل الرسالة الحالية للعودة إلى قائمة الإدارة**
+            # **تعديل هنا:** إذا لم تكن هناك فيديوهات، نعود إلى قائمة الإدارة بدون انتظار رسالة.
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1131,14 +1236,26 @@ def owner_callback_query_handler(call):
         
         markup = types.InlineKeyboardMarkup()
         # **تعديل هنا:** زر الرجوع يعود إلى إدارة الفيديوهات المحددة
-        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}", )) # Fixed callback_data
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (رقم الفيديو)
-        bot.send_message(user_id, text, reply_markup=markup)
-        waiting_for_delete[user_id] = {"category": category, "videos": videos}
+        markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data=f"manage_v{category.replace('v','')}"))
+        
+        # Edit the current message to display the list of videos
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text,
+                reply_markup=markup
+            )
+            # Store the message_id for later editing when a video is deleted
+            waiting_for_delete[user_id] = {"category": category, "videos": videos, "message_to_edit_id": call.message.message_id}
+        except apihelper.ApiTelegramException as e:
+            print(f"Failed to edit message {call.message.message_id}: {e}. Sending new.")
+            new_msg = bot.send_message(user_id, text, reply_markup=markup)
+            waiting_for_delete[user_id] = {"category": category, "videos": videos, "message_to_edit_id": new_msg.message_id}
+
 
     # New broadcast button handler leads to a submenu
     elif data == "broadcast_menu":
-        # **تعديل هنا: تعديل الرسالة لعرض لوحة مفاتيح الإذاعة**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1149,8 +1266,13 @@ def owner_callback_query_handler(call):
         waiting_for_broadcast["photo"] = True
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="broadcast_menu"))
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (صورة)
-        bot.send_message(user_id, "أرسل لي الصورة التي تريد إرسالها مع الرسالة.", reply_markup=markup)
+        # Edit the current message to display the photo prompt
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="أرسل لي الصورة التي تريد إرسالها مع الرسالة.", 
+            reply_markup=markup
+        )
 
     # معالج زر تثبيت رسالة جماعية
     elif data == "toggle_pin_broadcast":
@@ -1188,7 +1310,7 @@ def owner_callback_query_handler(call):
                 else:
                     bot.send_message(user_id, "❌ فشل إلغاء تثبيت الرسالة الجماعية لأي مستخدم. قد لا يكون لديك الصلاحيات الكافية.")
 
-        # **تعديل هنا: تحديث لوحة المفاتيح في نفس الرسالة لتعكس الحالة الجديدة**
+        # تحديث لوحة المفاتيح لتعكس الحالة الجديدة
         bot.edit_message_reply_markup(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1198,7 +1320,6 @@ def owner_callback_query_handler(call):
 
     # --- New button handlers for Mandatory Subscription section ---
     elif data == "mandatory_sub_menu":
-        # **تعديل هنا: تعديل الرسالة لعرض لوحة مفاتيح الاشتراك الإجباري**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1209,13 +1330,18 @@ def owner_callback_query_handler(call):
     elif data == "set_mandatory_channel_by_link_start":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="mandatory_sub_menu"))
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (رابط القناة)
-        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** (مثال: `https://t.me/my_channel_link` أو `https://t.me/c/-1001234567890`).", parse_mode="Markdown", reply_markup=markup)
+        # Edit the current message
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="الرجاء إرسال **رابط القناة** (مثال: `https://t.me/my_channel_link` أو `https://t.me/c/-1001234567890`).", 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
         owner_state[user_id] = {"action": "await_mandatory_channel_link_only"}
 
     elif data == "delete_mandatory_channel_start":
         # Show options for deleting by number or link
-        # **تعديل هنا: تعديل الرسالة لعرض خيارات حذف القناة الإجبارية**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1227,7 +1353,7 @@ def owner_callback_query_handler(call):
         channels = get_mandatory_channels()
         if not channels:
             bot.send_message(user_id, "لا توجد قنوات إجبارية لإزالتها حالياً.")
-            # **تعديل هنا: إذا لم توجد قنوات، نعدل الرسالة الحالية للعودة إلى قائمة الاشتراك الإجباري**
+            # **تعديل هنا:** إذا لم توجد قنوات، نعود إلى قائمة الاشتراك الإجباري
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1242,15 +1368,27 @@ def owner_callback_query_handler(call):
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="delete_mandatory_channel_start")) # Back to delete options
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (رقم القناة)
-        bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=markup)
+        # Edit the current message
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text, 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
         owner_state[user_id] = {"action": "await_delete_mandatory_channel_by_number", "channels": channels}
 
     elif data == "delete_mandatory_channel_by_link":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="delete_mandatory_channel_start")) # Back to delete options
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (رابط القناة)
-        bot.send_message(user_id, "الرجاء إرسال **رابط القناة** كاملاً التي تريد حذفها (مثال: `https://t.me/my_channel_link`).", parse_mode="Markdown", reply_markup=markup)
+        # Edit the current message
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="الرجاء إرسال **رابط القناة** كاملاً التي تريد حذفها (مثال: `https://t.me/my_channel_link`).", 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
         owner_state[user_id] = {"action": "await_delete_mandatory_channel_by_link"}
 
 
@@ -1258,14 +1396,19 @@ def owner_callback_query_handler(call):
         current_message = get_mandatory_message_text()
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="mandatory_sub_menu"))
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (نص الرسالة)
-        bot.send_message(user_id, f"الرجاء إرسال نص رسالة الاشتراك الإجباري الجديدة.\n\nالرسالة الحالية:\n`{current_message}`", parse_mode="Markdown", reply_markup=markup)
+        # Edit the current message
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"الرجاء إرسال نص رسالة الاشتراك الإجباري الجديدة.\n\nالرسالة الحالية:\n`{current_message}`", 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
         owner_state[user_id] = {"action": "await_mandatory_message_text"}
 
     # --- Add handlers for toggle post-subscribe check buttons ---
     elif data == "toggle_post_subscribe_check_on":
         post_subscribe_check_status_col.update_one({}, {"$set": {"enabled": True}}, upsert=True)
-        # **تعديل هنا: تعديل الرسالة لتحديث حالة الزر**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1274,7 +1417,6 @@ def owner_callback_query_handler(call):
         )
     elif data == "toggle_post_subscribe_check_off":
         post_subscribe_check_status_col.update_one({}, {"$set": {"enabled": False}}, upsert=True)
-        # **تعديل هنا: تعديل الرسالة لتحديث حالة الزر**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1284,7 +1426,6 @@ def owner_callback_query_handler(call):
 
     # --- Statistics section handlers ---
     elif data == "statistics_menu":
-        # **تعديل هنا: تعديل الرسالة لعرض لوحة مفاتيح الإحصائيات**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1309,7 +1450,6 @@ def owner_callback_query_handler(call):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("العودة لقسم الإحصائيات ↩️", callback_data="statistics_menu"))
 
-        # **تعديل هنا: تعديل الرسالة لعرض الإحصائيات**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1320,7 +1460,6 @@ def owner_callback_query_handler(call):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("نعم، احذف 🗑️", callback_data="clear_approved_users_execute"))
         markup.add(types.InlineKeyboardButton("إلغاء ↩️", callback_data="statistics_menu")) # Return to statistics menu
-        # **تعديل هنا: تعديل الرسالة لعرض تأكيد الحذف**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1335,14 +1474,18 @@ def owner_callback_query_handler(call):
         mandatory_subscribed_col.delete_many({})
         user_mandatory_progress_col.delete_many({}) # Clear mandatory subscription progress as well
 
-        # **تعديل هنا: تعديل الرسالة للإبلاغ عن نجاح الحذف ثم العودة للقائمة الرئيسية**
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text="✅ تم حذف جميع المستخدمين المقبولين بنجاح. سيحتاجون إلى إعادة التفعيل.",
-            reply_markup=owner_inline_keyboard() # العودة للقائمة الرئيسية مباشرة
+            reply_markup=None
         )
-
+        # **تعديل هنا:** العودة للقائمة الرئيسية بعد التنظيف
+        bot.send_message(
+            user_id,
+            "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
+            reply_markup=owner_inline_keyboard()
+        )
 
     # --- Handler for selective clear button ---
     elif data == "selective_clear_approved_users":
@@ -1352,7 +1495,7 @@ def owner_callback_query_handler(call):
 
         if not unique_approved_ids:
             bot.send_message(user_id, "لا يوجد مستخدمون مقبولون لحذفهم حالياً.")
-            # **تعديل هنا: العودة لقائمة الإحصائيات إذا لم يوجد مستخدمون**
+            # **تعديل هنا:** العودة لقائمة الإحصائيات إذا لم يوجد مستخدمون
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1384,14 +1527,28 @@ def owner_callback_query_handler(call):
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("رجوع ↩️", callback_data="statistics_menu"))
-        # نرسل رسالة جديدة هنا لأننا نطلب إدخالًا من المستخدم (معرفات المستخدمين)
-        bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=markup)
+        
+        # Edit the current message
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text, 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
 
 # --- New handler for receiving user IDs for selective clear ---
 @bot.message_handler(func=lambda m: m.from_user.id == OWNER_ID and waiting_for_selective_clear.get(m.from_user.id, {}).get("action") == "await_user_ids_for_clear")
 def handle_await_user_ids_for_selective_clear(message):
     user_id = message.from_user.id
     input_text = message.text.strip()
+
+    # Delete user's input message
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's input message: {e}")
+
 
     # Parse input: allow spaces, commas, or newlines
     input_ids_str = re.split(r'[,\s]+', input_text)
@@ -1403,7 +1560,7 @@ def handle_await_user_ids_for_selective_clear(message):
         except ValueError:
             bot.send_message(user_id, f"❌ '{uid_str}' ليس معرف مستخدم صالحًا. يرجى إرسال معرفات مستخدمين رقمية فقط.")
             waiting_for_selective_clear.pop(user_id, None)
-            # **تعديل هنا: العودة للقائمة الرئيسية بعد خطأ في الإدخال**
+            # **تعديل هنا:** العودة للقائمة الرئيسية بعد خطأ في الإدخال
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1414,7 +1571,7 @@ def handle_await_user_ids_for_selective_clear(message):
     if not user_ids_to_clear:
         bot.send_message(user_id, "لم يتم إدخال أي معرفات مستخدمين. يرجى المحاولة مرة أخرى.")
         waiting_for_selective_clear.pop(user_id, None)
-        # **تعديل هنا: العودة للقائمة الرئيسية إذا لم يتم إدخال شيء**
+        # **تعديل هنا:** العودة للقائمة الرئيسية إذا لم يتم إدخال شيء
         bot.send_message(
             user_id,
             "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1438,7 +1595,7 @@ def handle_await_user_ids_for_selective_clear(message):
             # Optionally notify the user who was cleared (if you want, be careful with this)
             try:
                 bot.send_message(target_user_id, "⚠️ تم إزالة وصولك إلى البوت. يرجى إعادة تفعيل حسابك إذا كنت ترغب في الاستمرار.", reply_markup=types.ReplyKeyboardRemove())
-                start(bot.get_chat(target_user_id)) # Send them to the start to re-activate
+                # start(bot.get_chat(target_user_id)) # Not advisable to call start directly on a user like this
             except Exception as e:
                 print(f"Failed to notify cleared user {target_user_id}: {e}")
         else:
@@ -1448,10 +1605,10 @@ def handle_await_user_ids_for_selective_clear(message):
     if failed_to_clear:
         response_message += f"❌ فشل حذف المستخدمين التاليين (قد لا يكونوا مقبولين): {', '.join(failed_to_clear)}\n"
 
-    bot.send_message(user_id, response_message, reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(user_id, response_message) # Removed ReplyKeyboardRemove here
 
     waiting_for_selective_clear.pop(user_id, None)
-    # **تعديل هنا: العودة للقائمة الرئيسية بعد عملية التنظيف**
+    # **تعديل هنا:** العودة للقائمة الرئيسية بعد عملية التنظيف
     bot.send_message(
         user_id,
         "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1493,6 +1650,12 @@ def handle_await_mandatory_channel_link_only(message):
     channel_link = message.text.strip()
     channel_id = None
 
+    # Delete user's input message
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's input message: {e}")
+
     cleaned_link = channel_link.replace("https://t.me/", "").replace("t.me/", "")
 
     try:
@@ -1505,7 +1668,7 @@ def handle_await_mandatory_channel_link_only(message):
         elif cleaned_link.startswith("+"):
             bot.send_message(user_id, "⚠️ لا يمكن إضافة القنوات الخاصة بروابط الدعوة (+) تلقائياً. الرجاء التأكد من أن القناة عامة (اسم مستخدم) أو قم بإضافة الـ ID يدوياً إذا كان البوت مسؤولاً فيها.")
             owner_state.pop(user_id, None)
-            # **تعديل هنا: العودة للقائمة الرئيسية بعد خطأ في الإدخال**
+            # **تعديل هنا:** العودة للقائمة الرئيسية بعد خطأ في الإدخال
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1537,7 +1700,7 @@ def handle_await_mandatory_channel_link_only(message):
         bot.send_message(user_id, f"❌ حدث خطأ غير متوقع: {e}. يرجى المحاولة مرة أخرى أو التحقق من الرابط.")
 
     owner_state.pop(user_id, None)
-    # **تعديل هنا: العودة إلى قائمة الاشتراك الإجباري عن طريق إرسال رسالة جديدة**
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد انتهاء العملية
     bot.send_message(
         user_id,
         "إدارة قنوات الاشتراك الإجباري والرسالة:",
@@ -1552,6 +1715,12 @@ def handle_delete_mandatory_channel_by_number(message):
     user_id = message.from_user.id
     state_data = owner_state.get(user_id, {})
     channels = state_data.get("channels")
+
+    # Delete user's input message
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's input message: {e}")
 
     try:
         choice = int(message.text)
@@ -1578,7 +1747,7 @@ def handle_delete_mandatory_channel_by_number(message):
         bot.send_message(user_id, f"❌ حدث خطأ أثناء حذف القناة: {e}.")
 
     owner_state.pop(user_id, None)
-    # **تعديل هنا: العودة إلى قائمة الاشتراك الإجباري عن طريق إرسال رسالة جديدة**
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد انتهاء العملية
     bot.send_message(
         user_id,
         "إدارة قنوات الاشتراك الإجباري والرسالة:",
@@ -1594,6 +1763,12 @@ def handle_delete_mandatory_channel_by_link(message):
     channel_link_to_delete = message.text.strip()
     channel_id_from_link = None
 
+    # Delete user's input message
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's input message: {e}")
+
     cleaned_link = channel_link_to_delete.replace("https://t.me/", "").replace("t.me/", "")
 
     try:
@@ -1607,7 +1782,7 @@ def handle_delete_mandatory_channel_by_link(message):
             # Can't get channel ID directly from invite link using get_chat method, need manual input
             bot.send_message(user_id, "⚠️ لا يمكن تحديد القناة الخاصة بروابط الدعوة (+) تلقائياً للحذف. يرجى إدخال الرابط العام للقناة أو حذفها بالرقم.")
             owner_state.pop(user_id, None)
-            # **تعديل هنا: العودة للقائمة الرئيسية بعد خطأ في الإدخال**
+            # **تعديل هنا:** العودة للقائمة الرئيسية بعد خطأ في الإدخال
             bot.send_message(
                 user_id,
                 "أهلاً بك في لوحة الأدمن الخاصة بالبوت 🤖\n\n- يمكنك التحكم في البوت الخاص بك من هنا",
@@ -1641,7 +1816,7 @@ def handle_delete_mandatory_channel_by_link(message):
         bot.send_message(user_id, f"❌ حدث خطأ غير متوقع: {e}. يرجى المحاولة مرة أخرى أو التحقق من الرابط.")
 
     owner_state.pop(user_id, None)
-    # **تعديل هنا: العودة إلى قائمة الاشتراك الإجباري عن طريق إرسال رسالة جديدة**
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد انتهاء العملية
     bot.send_message(
         user_id,
         "إدارة قنوات الاشتراك الإجباري والرسالة:",
@@ -1657,11 +1832,17 @@ def handle_await_mandatory_message_text(message):
     user_id = message.from_user.id
     new_message_text = message.text.strip()
 
+    # Delete user's input message
+    try:
+        bot.delete_message(user_id, message.message_id)
+    except Exception as e:
+        print(f"Failed to delete user's input message: {e}")
+
     mandatory_message_col.update_one({}, {"$set": {"text": new_message_text}}, upsert=True)
-    bot.send_message(user_id, "✅ تم تعيين رسالة الاشتراك الإجباري بنجاح.", reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(user_id, "✅ تم تعيين رسالة الاشتراك الإجباري بنجاح.") # Removed ReplyKeyboardRemove here
 
     owner_state.pop(user_id)
-    # **تعديل هنا: العودة إلى قائمة الاشتراك الإجباري عن طريق إرسال رسالة جديدة**
+    # **تعديل هنا:** العودة إلى قائمة الاشتراك الإجباري بعد تعيين الرسالة
     bot.send_message(
         user_id,
         "إدارة قنوات الاشتراك الإجباري والرسالة:",
