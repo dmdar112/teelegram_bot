@@ -341,6 +341,10 @@ def send_mandatory_subscription_message(user_id, message_id=None, chat_id=None):
     """
     if not is_post_subscribe_check_enabled():
         print(f"Post-subscribe check is disabled for user {user_id}. Skipping mandatory message.")
+        # If check is disabled, ensure the main keyboard is shown and user is marked as subscribed.
+        if not has_completed_mandatory_flow_in_db(user_id):
+            set_mandatory_subscribed(user_id)
+            bot.send_message(user_id, "✅ لا توجد قنوات إجبارية حالياً. يمكنك استخدام البوت.", reply_markup=main_keyboard())
         return
 
     channels = get_mandatory_channels()
@@ -663,6 +667,7 @@ def handle_check_mandatory_sub(call):
             reply_markup=None
         )
         set_mandatory_subscribed(user_id)
+        # هذا هو السطر الحاسم: ظهور لوحة المفاتيح الرئيسية بعد اكمال كل شي
         bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
         return
@@ -717,6 +722,7 @@ def handle_check_mandatory_sub(call):
             text="✅ تهانينا! لقد أتممت الاشتراك الإجباري بنجاح!\nالآن يمكنك استخدام البوت والوصول إلى الأقسام المفعلة لك.",
             reply_markup=None
         )
+        # هذا هو السطر الحاسم: ظهور لوحة المفاتيح الرئيسية بعد اكمال كل شي
         bot.send_message(user_id, "الآن يمكنك استخدام البوت.", reply_markup=main_keyboard())
         pending_mandatory_check.pop(user_id, None)
 
